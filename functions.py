@@ -13,6 +13,31 @@ def get_data_from_json_file(full_path):
     return data
 
 
+def calculate_arbitrage_profit(cycle, prices, fee_rate, min_liquidity):
+    amount = 1.0
+    for i in range(len(cycle) - 1):
+        base = cycle[i]
+        quote = cycle[i + 1]
+        pair = f"{base}{quote}" if f"{base}{quote}" in prices else f"{quote}{base}"
+
+        if pair in prices and prices[pair]["bid"] is not None and prices[pair]["ask"] is not None:
+            if pair.startswith(base):
+                rate = prices[pair]["ask"]
+                liquidity = prices[pair]["ask"] * prices[pair]["askSize"]
+            else:
+                rate = 1 / prices[pair]["bid"]
+                liquidity = prices[pair]["bid"] * prices[pair]["bidSize"]
+
+            if liquidity < min_liquidity:
+                print(f"⚠️ Недостаточная ликвидность для {pair}, пропускаем!")
+                return 0
+
+            rate *= (1 - fee_rate)
+            amount *= rate
+
+    return amount
+
+
 def get_server_time(host):
     """
     :return: возвращает такие данные {'timeSecond': '1738692213', 'timeNano': '1738692213900666676'}
