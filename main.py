@@ -21,7 +21,7 @@ prices_dict = {
 }
 
 # Порог прибыли для арбитража (например, 0.1%)
-ARBITRAGE_THRESHOLD = 0.001  # 0.1% в десятичной форме
+ARBITRAGE_THRESHOLD = 0.002  # 0.2% в десятичной форме
 TRADING_FEE = 0.001  # 0.1% комиссия за сделку
 
 
@@ -91,10 +91,11 @@ def find_arbitrage_opportunities(prices):
                 # Учитываем комиссию (две сделки — покупка и продажа)
                 net_profit_percent = profit_percent - 2 * TRADING_FEE
                 if net_profit_percent > ARBITRAGE_THRESHOLD:
-                    logger.info(f"Арбитраж найден: {symbol}!")
-                    logger.info(f"Купить на {ask_exchange} за {best_ask}")
-                    logger.info(f"Продать на {bid_exchange} за {best_bid}")
-                    logger.info(f"Чистая прибыль (с учетом комиссии): {net_profit_percent * 100:.2f}%")
+                    txt = f'''Арбитраж найден для монеты: {symbol}!
+                    Купить на {ask_exchange} за {best_ask}
+                    Продать на {bid_exchange} за {best_bid}
+                    Чистая прибыль (с учетом комиссии): {net_profit_percent * 100:.2f}%'''
+                    logger.info(txt)
 
         time.sleep(1)  # Проверка каждую секунду
 
