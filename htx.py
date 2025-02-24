@@ -3,6 +3,7 @@ import websocket
 import threading
 import time
 import gzip
+from logs.logging import logger
 
 # URL WebSocket HTX
 HTX_WS_URL = "wss://api.huobi.pro/ws"
@@ -32,6 +33,7 @@ class HTXWebSocket:
     def __init__(self, prices):
         self.ws = None
         self.prices = prices
+        self.reconnect = True
 
     # Подключение к WebSocket
     def on_open(self, ws):
@@ -66,10 +68,22 @@ class HTXWebSocket:
     # Обработка ошибок
     def on_error(self, ws, error):
         print(f"❌ Ошибка WebSocket HTX: {error}")
+        self.clear_prices()  # Удаляем цены
 
     # Закрытие соединения
     def on_close(self, ws, close_status_code, close_msg):
-        print("❌ WebSocket HTX закрыт")
+        logger.warning(f'WS: {ws}, Close_status_code: {close_status_code}, Close_msg: {close_msg}')
+        if self.reconnect:
+            logger.error(f"⚠️ WebSocket HTX закрыт")
+            logger.info("🔄 Переподключение к WebSocket HTX через 5 сек...")
+            time.sleep(5)
+            self.start()  # Перезапуск соединения
+
+    def clear_prices(self):
+        """Удаляет цены HTX из словаря при отключении."""
+        for symbol in self.prices:
+            if "htx" in self.prices[symbol]:
+                del self.prices[symbol]["htx"]
 
     # Запуск WebSocket с автоматическим восстановлением
     def start(self):

@@ -1,5 +1,6 @@
 import threading
 import time
+import websocket
 from logs.logging import logger
 from bingx import BingXWebSocket
 from bybit import BybitWebSocket
@@ -20,7 +21,7 @@ prices_dict = {
     'TONUSDT': {}
 }
 
-# Порог прибыли для арбитража (например, 0.1%)
+# Порог прибыли для арбитража (например, 0.2%)
 ARBITRAGE_THRESHOLD = 0.002  # 0.2% в десятичной форме
 TRADING_FEE = 0.001  # 0.1% комиссия за сделку
 
@@ -31,18 +32,15 @@ def run_bingx():
     bingx_ws = BingXWebSocket(prices_dict)
     bingx_ws.start()
 
-
 def run_bybit():
     print("🔹 Запускаем Bybit WebSocket")
     bybit_ws = BybitWebSocket(prices_dict)
     bybit_ws.start()
 
-
 def run_htx():
     print("🔹 Запускаем HTX WebSocket")
     htx_ws = HTXWebSocket(prices_dict)
     htx_ws.start()
-
 
 def run_okx():
     print("🔹 Запускаем OKX WebSocket")
@@ -60,7 +58,6 @@ threads = [
 
 for thread in threads:
     thread.start()
-    time.sleep(1)
 
 # Функция поиска арбитражных возможностей
 def find_arbitrage_opportunities(prices):
@@ -91,10 +88,9 @@ def find_arbitrage_opportunities(prices):
                 # Учитываем комиссию (две сделки — покупка и продажа)
                 net_profit_percent = profit_percent - 2 * TRADING_FEE
                 if net_profit_percent > ARBITRAGE_THRESHOLD:
-                    txt = f'''Арбитраж найден для монеты: {symbol}!
+                    txt = f'''Монета: {symbol} с чистой прибылью {net_profit_percent * 100:.2f}%!
                     Купить на {ask_exchange} за {best_ask}
-                    Продать на {bid_exchange} за {best_bid}
-                    Чистая прибыль (с учетом комиссии): {net_profit_percent * 100:.2f}%'''
+                    Продать на {bid_exchange} за {best_bid}'''
                     logger.info(txt)
 
         time.sleep(1)  # Проверка каждую секунду

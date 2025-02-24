@@ -2,6 +2,7 @@ import json
 import websocket
 import threading
 import time
+from logs.logging import logger
 
 # URL WebSocket Bybit
 BYBIT_WS_URL = "wss://stream.bybit.com/v5/public/spot"
@@ -29,6 +30,7 @@ class BybitWebSocket:
     def __init__(self, prices):
         self.ws = None
         self.prices = prices
+        self.reconnect = True
 
     # Подключение к WebSocket
     def on_open(self, ws):
@@ -64,10 +66,22 @@ class BybitWebSocket:
     # Обработка ошибок
     def on_error(self, ws, error):
         print(f"❌ Ошибка WebSocket Bybit: {error}")
+        self.clear_prices()  # Удаляем цены
 
     # Закрытие соединения
     def on_close(self, ws, close_status_code, close_msg):
-        print("❌ WebSocket Bybit закрыт")
+        logger.warning(f'WS: {ws}, Close_status_code: {close_status_code}, Close_msg: {close_msg}')
+        if self.reconnect:
+            logger.error(print("❌ WebSocket Bybit закрыт"))
+            logger.info("🔄 Переподключение к WebSocket Bybit через 5 сек...")
+            time.sleep(5)
+            self.start()  # Перезапуск соединения
+
+    def clear_prices(self):
+        """Удаляет цены bybit из словаря при отключении."""
+        for symbol in self.prices:
+            if "bybit" in self.prices[symbol]:
+                del self.prices[symbol]["bybit"]
 
     # Запуск WebSocket с автоматическим восстановлением
     def start(self):

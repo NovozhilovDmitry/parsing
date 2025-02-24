@@ -2,6 +2,7 @@ import json
 import websocket
 import threading
 import time
+from logs.logging import logger
 
 # URL WebSocket OKX
 OKX_WS_URL = "wss://ws.okx.com:8443/ws/v5/public"
@@ -31,6 +32,7 @@ class OKXWebSocket:
     def __init__(self, prices):
         self.ws = None
         self.prices = prices
+        self.reconnect = True
 
     # Подключение к WebSocket
     def on_open(self, ws):
@@ -61,10 +63,22 @@ class OKXWebSocket:
     # Обработка ошибок
     def on_error(self, ws, error):
         print(f"❌ Ошибка WebSocket OKX: {error}")
+        self.clear_prices()  # Удаляем цены
 
     # Закрытие соединения
     def on_close(self, ws, close_status_code, close_msg):
-        print("❌ WebSocket OKX закрыт")
+        logger.warning(f'WS: {ws}, Close_status_code: {close_status_code}, Close_msg: {close_msg}')
+        if self.reconnect:
+            logger.error("❌ WebSocket OKX закрыт")
+            logger.info("🔄 Переподключение к WebSocket OKX через 5 сек...")
+            time.sleep(5)
+            self.start()  # Перезапуск соединения
+
+    def clear_prices(self):
+        """Удаляет цены OKX из словаря при отключении."""
+        for symbol in self.prices:
+            if "okx" in self.prices[symbol]:
+                del self.prices[symbol]["okx"]
 
     # Запуск WebSocket с автоматическим восстановлением
     def start(self):

@@ -4,6 +4,7 @@ import gzip
 import io
 import threading
 import time
+from logs.logging import logger
 
 # URL WebSocket BingX
 BINGX_WS_URL = "wss://open-api-swap.bingx.com/swap-market"
@@ -12,7 +13,7 @@ BINGX_WS_URL = "wss://open-api-swap.bingx.com/swap-market"
 PAIRS = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'XRP-USDT', 'DOGE-USDT', 'SUI-USDT', 'LTC-USDT', 'IP-USDT', 'ADA-USDT',
          'TON-USDT'] # отсутствует TON
 SUBSCRIPTIONS = [{"id": "bingx-depth", "reqType": "sub", "dataType": f"{pair}@depth5@500ms"} for pair in PAIRS]
-# TONUSDT
+
 # Словарь для хранения цен
 bingx_prices = {
     'BTCUSDT': {},
@@ -33,6 +34,7 @@ class BingXWebSocket:
     def __init__(self, prices):
         self.ws = None
         self.prices = prices
+        self.reconnect = True  # Флаг для управления переподключением
 
     # Подключение
     def on_open(self, ws):
@@ -64,10 +66,22 @@ class BingXWebSocket:
     # Обработка ошибок
     def on_error(self, ws, error):
         print(f"Ошибка WebSocket BingX: {error}")
+        self.clear_prices()  # Удаляем цены
 
     # Закрытие соединения
     def on_close(self, ws, close_status_code, close_msg):
-        print("WebSocket BingX закрыт")
+        logger.warning(f'WS: {ws}, Close_status_code: {close_status_code}, Close_msg: {close_msg}')
+        if self.reconnect:
+            logger.error(f"⚠️ WebSocket BingX закрыт")
+            logger.info("🔄 Переподключение к WebSocket BingX через 5 сек...")
+            time.sleep(5)
+            self.start()  # Перезапуск соединения
+
+    def clear_prices(self):
+        """Удаляет цены BingX из словаря при отключении."""
+        for symbol in self.prices:
+            if "bingx" in self.prices[symbol]:
+                del self.prices[symbol]["bingx"]
 
     # Запуск WebSocket
     def start(self):
