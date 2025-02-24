@@ -11,13 +11,19 @@ PAIRS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"]
 SUBSCRIPTIONS = {"op": "subscribe", "args": [f"orderbook.1.{pair}" for pair in PAIRS]}
 
 # Словарь для хранения цен
-bybit_prices = {pair: {"bid": None, "ask": None} for pair in PAIRS}
-
+bybit_prices = {
+    "BTCUSDT": {},
+    "ETHUSDT": {},
+    "SOLUSDT": {},
+    "XRPUSDT": {},
+    "DOGEUSDT": {},
+}
 
 # Класс WebSocket для Bybit
 class BybitWebSocket:
-    def __init__(self):
+    def __init__(self, prices):
         self.ws = None
+        self.prices = prices
 
     # Подключение к WebSocket
     def on_open(self, ws):
@@ -46,9 +52,10 @@ class BybitWebSocket:
                     ask_price = float(asks[0][0])  # Лучшая цена продажи
 
                     if symbol in bybit_prices:
-                        bybit_prices[symbol]["bid"] = bid_price
-                        bybit_prices[symbol]["ask"] = ask_price
-                        print(f"Bybit | {symbol} | Bid: {bid_price} | Ask: {ask_price}")
+                        # bybit_prices[symbol]["bid"] = bid_price
+                        # bybit_prices[symbol]["ask"] = ask_price
+                        # print(f"Bybit | {symbol} | Bid: {bid_price} | Ask: {ask_price}")
+                        self.prices[symbol]["bybit"] = {"bid": bid_price, "ask": ask_price}
 
         except Exception as e:
             print(f"❌ Ошибка обработки данных Bybit: {e}")
@@ -78,15 +85,16 @@ class BybitWebSocket:
             time.sleep(5)  # Ждём перед повторным подключением
 
 
-# Запуск в отдельном потоке
-def run_bybit_websocket():
-    bybit_ws = BybitWebSocket()  # Создаём объект WebSocket
-    bybit_ws.start()  # Запускаем
-
 if __name__ == '__main__':
+    # Запуск в отдельном потоке
+    def run_bybit_websocket():
+        bybit_ws = BybitWebSocket(bybit_prices)  # Создаём объект WebSocket
+        bybit_ws.start()  # Запускаем
+
     bybit_thread = threading.Thread(target=run_bybit_websocket, daemon=True)
     bybit_thread.start()
 
     # Поддерживаем основной поток активным
     while True:
+        print(bybit_prices)
         time.sleep(1)

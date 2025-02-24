@@ -12,13 +12,20 @@ PAIRS = ["btcusdt", "ethusdt", "solusdt", "xrpusdt", "dogeusdt"]
 SUBSCRIPTIONS = [{"sub": f"market.{pair}.depth.step0", "id": pair} for pair in PAIRS]
 
 # Словарь для хранения цен
-htx_prices = {pair: {"bid": None, "ask": None} for pair in PAIRS}
+htx_prices = {
+    "BTCUSDT": {},
+    "ETHUSDT": {},
+    "SOLUSDT": {},
+    "XRPUSDT": {},
+    "DOGEUSDT": {},
+}
 
 
 # Класс WebSocket для HTX
 class HTXWebSocket:
-    def __init__(self):
+    def __init__(self, prices):
         self.ws = None
+        self.prices = prices
 
     # Подключение к WebSocket
     def on_open(self, ws):
@@ -41,14 +48,14 @@ class HTXWebSocket:
                 ws.send(json.dumps({"pong": data["ping"]}))
 
             if "tick" in data and "bids" in data["tick"] and "asks" in data["tick"]:
-                symbol = data["ch"].split(".")[1]  # Извлекаем символ из `ch`
+                symbol = data["ch"].split(".")[1].upper()  # Извлекаем символ из `ch`
                 bid_price = float(data["tick"]["bids"][0][0])  # Лучшая цена покупки
                 ask_price = float(data["tick"]["asks"][0][0])  # Лучшая цена продажи
-
                 if symbol in htx_prices:
-                    htx_prices[symbol]["bid"] = bid_price
-                    htx_prices[symbol]["ask"] = ask_price
-                    print(f"HTX | {symbol} | Bid: {bid_price} | Ask: {ask_price}")
+                    # htx_prices[symbol]["bid"] = bid_price
+                    # htx_prices[symbol]["ask"] = ask_price
+                    # print(f"HTX | {symbol} | Bid: {bid_price} | Ask: {ask_price}")
+                    self.prices[symbol]["htx"] = {"bid": bid_price, "ask": ask_price}
 
         except Exception as e:
             print(f"❌ Ошибка обработки данных HTX: {e}")
@@ -78,16 +85,16 @@ class HTXWebSocket:
             time.sleep(5)  # Ждём перед повторным подключением
 
 
-# Запуск в отдельном потоке
-def run_htx_websocket():
-    htx_ws = HTXWebSocket()  # Создаём объект WebSocket
-    htx_ws.start()  # Запускаем
-
-
 if __name__ == '__main__':
+    # Запуск в отдельном потоке
+    def run_htx_websocket():
+        htx_ws = HTXWebSocket(htx_prices)  # Создаём объект WebSocket
+        htx_ws.start()  # Запускаем
+
     htx_thread = threading.Thread(target=run_htx_websocket, daemon=True)
     htx_thread.start()
 
     # Поддерживаем основной поток активным
     while True:
+        print(htx_prices)
         time.sleep(1)

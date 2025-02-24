@@ -11,13 +11,20 @@ PAIRS = ["BTC-USDT", "ETH-USDT", "SOL-USDT", "XRP-USDT", "DOGE-USDT"]
 SUBSCRIPTIONS = [{"op": "subscribe", "args": [{"channel": "tickers", "instId": pair}]} for pair in PAIRS]
 
 # Словарь для хранения цен
-okx_prices = {pair: {"bid": None, "ask": None} for pair in PAIRS}
+okx_prices = {
+    "BTCUSDT": {},
+    "ETHUSDT": {},
+    "SOLUSDT": {},
+    "XRPUSDT": {},
+    "DOGEUSDT": {},
+}
 
 
 # Класс WebSocket для OKX
 class OKXWebSocket:
-    def __init__(self):
+    def __init__(self, prices):
         self.ws = None
+        self.prices = prices
 
     # Подключение к WebSocket
     def on_open(self, ws):
@@ -30,21 +37,20 @@ class OKXWebSocket:
     def on_message(self, ws, message):
         try:
             data = json.loads(message)
-
             if "event" in data and data["event"] == "subscribe":
                 print(f"🔔 Подписка успешна: {data}")
                 return
 
             if "arg" in data and "data" in data:
                 ticker_data = data["data"][0]
-                symbol = data["arg"]["instId"]
+                symbol = data["arg"]["instId"].replace('-', '')
                 bid_price = float(ticker_data["bidPx"])
                 ask_price = float(ticker_data["askPx"])
-
                 if symbol in okx_prices:
-                    okx_prices[symbol]["bid"] = bid_price
-                    okx_prices[symbol]["ask"] = ask_price
-                    print(f"OKX | {symbol} | Bid: {bid_price} | Ask: {ask_price}")
+                    # okx_prices[symbol]["bid"] = bid_price
+                    # okx_prices[symbol]["ask"] = ask_price
+                    # print(f"OKX | {symbol} | Bid: {bid_price} | Ask: {ask_price}")
+                    self.prices[symbol]["okx"] = {"bid": bid_price, "ask": ask_price}
 
         except Exception as e:
             print(f"❌ Ошибка обработки данных OKX: {e}")
@@ -74,16 +80,16 @@ class OKXWebSocket:
             time.sleep(5)  # Ждём перед повторным подключением
 
 
-# Запуск в отдельном потоке
-def run_okx_websocket():
-    okx_ws = OKXWebSocket()  # Создаём объект WebSocket
-    okx_ws.start()  # Запускаем
-
-
 if __name__ == '__main__':
+    # Запуск в отдельном потоке
+    def run_okx_websocket():
+        okx_ws = OKXWebSocket(okx_prices)  # Создаём объект WebSocket
+        okx_ws.start()  # Запускаем
+
     okx_thread = threading.Thread(target=run_okx_websocket, daemon=True)
     okx_thread.start()
 
     # Поддерживаем основной поток активным
     while True:
+        print(okx_prices)
         time.sleep(1)

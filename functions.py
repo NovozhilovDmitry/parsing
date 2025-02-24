@@ -29,7 +29,7 @@ def calculate_arbitrage_profit(cycle, prices, fee_rate, min_liquidity):
                 liquidity = prices[pair]["bid"] * prices[pair]["bidSize"]
 
             if liquidity < min_liquidity:
-                print(f"⚠️ Недостаточная ликвидность для {pair}, пропускаем!")
+                print(f"Недостаточная ликвидность для {pair}, пропускаем!")
                 return 0
 
             rate *= (1 - fee_rate)

@@ -1,32 +1,50 @@
 import threading
 import time
+from logs.logging import logger
 from bingx import BingXWebSocket
 from bybit import BybitWebSocket
 from htx import HTXWebSocket
 from okx import OKXWebSocket
 
+# Словарь для хранения цен
+prices_dict = {
+    "BTCUSDT": {},
+    "ETHUSDT": {},
+    "SOLUSDT": {},
+    "XRPUSDT": {},
+    "DOGEUSDT": {},
+}
+
+# 0.1% комиссия за сделку
+TRADING_FEE = 0.001
+
+
 # Функции для запуска WebSocket
 def run_bingx():
     print("🔹 Запускаем BingX WebSocket")
-    bingx_ws = BingXWebSocket()
+    bingx_ws = BingXWebSocket(prices_dict)
     bingx_ws.start()
+
 
 def run_bybit():
     print("🔹 Запускаем Bybit WebSocket")
-    bybit_ws = BybitWebSocket()
+    bybit_ws = BybitWebSocket(prices_dict)
     bybit_ws.start()
+
 
 def run_htx():
     print("🔹 Запускаем HTX WebSocket")
-    htx_ws = HTXWebSocket()
+    htx_ws = HTXWebSocket(prices_dict)
     htx_ws.start()
+
 
 def run_okx():
     print("🔹 Запускаем OKX WebSocket")
-    okx_ws = OKXWebSocket()
+    okx_ws = OKXWebSocket(prices_dict)
     okx_ws.start()
 
-# Создаем и запускаем потоки
+
+# Запуск в потоках
 threads = [
     threading.Thread(target=run_bingx, daemon=True),
     threading.Thread(target=run_bybit, daemon=True),
@@ -37,7 +55,46 @@ threads = [
 for thread in threads:
     thread.start()
 
-# Проверяем активность потоков
+# Функция поиска арбитражных возможностей
+def find_arbitrage_opportunities(prices):
+    while True:
+        for symbol, exchanges in prices.items():
+            best_bid = None
+            best_ask = None
+            bid_exchange = None
+            ask_exchange = None
+
+            # Поиск лучшей цены покупки (ask) и продажи (bid)
+            for exchange, data in exchanges.items():
+                bid = data.get("bid")
+                ask = data.get("ask")
+
+                if bid and (best_bid is None or bid > best_bid):
+                    best_bid = bid
+                    bid_exchange = exchange
+
+                if ask and (best_ask is None or ask < best_ask):
+                    best_ask = ask
+                    ask_exchange = exchange
+
+            # Проверяем возможность арбитража
+            if best_bid and best_ask and best_bid > best_ask:
+                profit_percent = (best_bid - best_ask) / best_ask
+
+                # Учитываем комиссию (две сделки — покупка и продажа)
+                net_profit_percent = profit_percent - 2 * TRADING_FEE
+                if net_profit_percent:
+                    logger.info(f"Арбитраж найден: {symbol}!")
+                    logger.info(f"Купить на {ask_exchange} за {best_ask}")
+                    logger.info(f"Продать на {bid_exchange} за {best_bid}")
+                    logger.info(f"Чистая прибыль (с учетом комиссии): {net_profit_percent * 100:.2f}%")
+
+        time.sleep(1)  # Проверка каждую секунду
+
+# Запускаем поиск арбитража в отдельном потоке
+arbitrage_thread = threading.Thread(target=find_arbitrage_opportunities, args=(prices_dict,), daemon=True)
+arbitrage_thread.start()
+
+# Поддерживаем основной поток активным
 while True:
-    print(f"🎯 Активные потоки: {threading.active_count()}")
-    time.sleep(5)
+    time.sleep(1)

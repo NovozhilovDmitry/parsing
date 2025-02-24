@@ -12,14 +12,21 @@ BINGX_WS_URL = "wss://open-api-swap.bingx.com/swap-market"
 PAIRS = ["BTC-USDT", "ETH-USDT", "SOL-USDT", "XRP-USDT", "DOGE-USDT"]
 SUBSCRIPTIONS = [{"id": "bingx-depth", "reqType": "sub", "dataType": f"{pair}@depth5@500ms"} for pair in PAIRS]
 
-# ✅ Правильный словарь для хранения цен
-bingx_prices = {pair: {"bid": None, "ask": None} for pair in PAIRS}
+# Словарь для хранения цен
+bingx_prices = {
+    "BTCUSDT": {},
+    "ETHUSDT": {},
+    "SOLUSDT": {},
+    "XRPUSDT": {},
+    "DOGEUSDT": {},
+}
 
 
 # Класс WebSocket для BingX
 class BingXWebSocket:
-    def __init__(self):
+    def __init__(self, prices):
         self.ws = None
+        self.prices = prices
 
     # Подключение
     def on_open(self, ws):
@@ -42,14 +49,14 @@ class BingXWebSocket:
             ws.send(json.dumps({"pong": data["ping"]}))
 
         if "data" in data and "bids" in data["data"] and "asks" in data["data"]:
-            symbol = data["dataType"].split('@')[0]
+            symbol = data["dataType"].split('@')[0].replace('-', '')
             bid_price = float(data["data"]["bids"][0][0])  # Лучшая цена покупки
             ask_price = float(data["data"]["asks"][0][0])  # Лучшая цена продажи
-
             if symbol in bingx_prices:
-                bingx_prices[symbol]["bid"] = bid_price
-                bingx_prices[symbol]["ask"] = ask_price
-                print(f"BingX | {symbol} | Bid: {bid_price} | Ask: {ask_price}")
+                # bingx_prices[symbol]["bid"] = bid_price
+                # bingx_prices[symbol]["ask"] = ask_price
+                # print(f"BingX | {symbol} | Bid: {bid_price} | Ask: {ask_price}")
+                self.prices[symbol]["bingx"] = {"bid": bid_price, "ask": ask_price}
 
     # Обработка ошибок
     def on_error(self, ws, error):
@@ -71,16 +78,16 @@ class BingXWebSocket:
         self.ws.run_forever()
 
 
-# Запуск в отдельном потоке
-def run_bingx_websocket():
-    bingx_ws = BingXWebSocket()  # Создаём объект WebSocket
-    bingx_ws.start()  # Запускаем
-
-
 if __name__ == '__main__':
+    # Запуск в отдельном потоке
+    def run_bingx_websocket():
+        bingx_ws = BingXWebSocket(bingx_prices)  # Создаём объект WebSocket
+        bingx_ws.start()  # Запускаем
+
     bingx_thread = threading.Thread(target=run_bingx_websocket, daemon=True)
     bingx_thread.start()
 
     # Поддерживаем основной поток активным
     while True:
+        print(bingx_prices)
         time.sleep(1)
