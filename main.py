@@ -1,27 +1,43 @@
-import requests
-import pathlib
-import hmac
-import hashlib
-from datetime import datetime
+import threading
+import time
+from bingx import BingXWebSocket
+from bybit import BybitWebSocket
+from htx import HTXWebSocket
+from okx import OKXWebSocket
 
+# Функции для запуска WebSocket
+def run_bingx():
+    print("🔹 Запускаем BingX WebSocket")
+    bingx_ws = BingXWebSocket()
+    bingx_ws.start()
 
-from functions import (get_data_from_json_file, get_server_time, from_int_to_date, datetime_to_int,
-                       get_historical_volatolity, get_wallet_balance, place_order)
+def run_bybit():
+    print("🔹 Запускаем Bybit WebSocket")
+    bybit_ws = BybitWebSocket()
+    bybit_ws.start()
 
+def run_htx():
+    print("🔹 Запускаем HTX WebSocket")
+    htx_ws = HTXWebSocket()
+    htx_ws.start()
 
-host_testnet = 'https://api-testnet.bybit.com'
-host_demo = 'https://api-demo.bybit.com'
-coin = 'BTC'
-path_to_api_key = pathlib.Path.cwd().joinpath('api_key.json')
-path_to_api_secret = pathlib.Path.cwd().joinpath('api_secret.json')
-X_BAPI_API_KEY = get_data_from_json_file(path_to_api_key)['api_key_test']
-api_secret = get_data_from_json_file(path_to_api_secret)['api_key_test']
+def run_okx():
+    print("🔹 Запускаем OKX WebSocket")
+    okx_ws = OKXWebSocket()
+    okx_ws.start()
 
-# server_time = get_server_time()
-time = datetime.now()
-cur_time = str(datetime_to_int(time, '%Y.%m.%d %H:%M:%S.%f'))
-data_to_sign = cur_time + X_BAPI_API_KEY + '20000'
-signature = hmac.new(api_secret.encode(), data_to_sign.encode(), hashlib.sha256).hexdigest()
-# print(get_wallet_balance(X_BAPI_API_KEY, signature, cur_time, host_testnet))
-print(place_order(X_BAPI_API_KEY, signature, cur_time, host_demo))
+# Создаем и запускаем потоки
+threads = [
+    threading.Thread(target=run_bingx, daemon=True),
+    threading.Thread(target=run_bybit, daemon=True),
+    threading.Thread(target=run_htx, daemon=True),
+    threading.Thread(target=run_okx, daemon=True),
+]
 
+for thread in threads:
+    thread.start()
+
+# Проверяем активность потоков
+while True:
+    print(f"🎯 Активные потоки: {threading.active_count()}")
+    time.sleep(5)
