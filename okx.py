@@ -47,9 +47,6 @@ class OKXWebSocket:
                 bid_price = float(ticker_data["bidPx"])
                 ask_price = float(ticker_data["askPx"])
                 if symbol in okx_prices:
-                    # okx_prices[symbol]["bid"] = bid_price
-                    # okx_prices[symbol]["ask"] = ask_price
-                    # print(f"OKX | {symbol} | Bid: {bid_price} | Ask: {ask_price}")
                     self.prices[symbol]["okx"] = {"bid": bid_price, "ask": ask_price}
 
         except Exception as e:

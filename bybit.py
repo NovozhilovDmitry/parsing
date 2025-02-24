@@ -52,9 +52,6 @@ class BybitWebSocket:
                     ask_price = float(asks[0][0])  # Лучшая цена продажи
 
                     if symbol in bybit_prices:
-                        # bybit_prices[symbol]["bid"] = bid_price
-                        # bybit_prices[symbol]["ask"] = ask_price
-                        # print(f"Bybit | {symbol} | Bid: {bid_price} | Ask: {ask_price}")
                         self.prices[symbol]["bybit"] = {"bid": bid_price, "ask": ask_price}
 
         except Exception as e:

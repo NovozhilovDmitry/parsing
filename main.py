@@ -15,8 +15,9 @@ prices_dict = {
     "DOGEUSDT": {},
 }
 
-# 0.1% комиссия за сделку
-TRADING_FEE = 0.001
+# Порог прибыли для арбитража (например, 0.1%)
+ARBITRAGE_THRESHOLD = 0.001  # 0.1% в десятичной форме
+TRADING_FEE = 0.001  # 0.1% комиссия за сделку
 
 
 # Функции для запуска WebSocket
@@ -83,7 +84,7 @@ def find_arbitrage_opportunities(prices):
 
                 # Учитываем комиссию (две сделки — покупка и продажа)
                 net_profit_percent = profit_percent - 2 * TRADING_FEE
-                if net_profit_percent:
+                if net_profit_percent > ARBITRAGE_THRESHOLD:
                     logger.info(f"Арбитраж найден: {symbol}!")
                     logger.info(f"Купить на {ask_exchange} за {best_ask}")
                     logger.info(f"Продать на {bid_exchange} за {best_bid}")

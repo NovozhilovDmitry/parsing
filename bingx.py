@@ -53,9 +53,6 @@ class BingXWebSocket:
             bid_price = float(data["data"]["bids"][0][0])  # Лучшая цена покупки
             ask_price = float(data["data"]["asks"][0][0])  # Лучшая цена продажи
             if symbol in bingx_prices:
-                # bingx_prices[symbol]["bid"] = bid_price
-                # bingx_prices[symbol]["ask"] = ask_price
-                # print(f"BingX | {symbol} | Bid: {bid_price} | Ask: {ask_price}")
                 self.prices[symbol]["bingx"] = {"bid": bid_price, "ask": ask_price}
 
     # Обработка ошибок

@@ -52,9 +52,6 @@ class HTXWebSocket:
                 bid_price = float(data["tick"]["bids"][0][0])  # Лучшая цена покупки
                 ask_price = float(data["tick"]["asks"][0][0])  # Лучшая цена продажи
                 if symbol in htx_prices:
-                    # htx_prices[symbol]["bid"] = bid_price
-                    # htx_prices[symbol]["ask"] = ask_price
-                    # print(f"HTX | {symbol} | Bid: {bid_price} | Ask: {ask_price}")
                     self.prices[symbol]["htx"] = {"bid": bid_price, "ask": ask_price}
 
         except Exception as e:
