@@ -9,16 +9,22 @@ import time
 BINGX_WS_URL = "wss://open-api-swap.bingx.com/swap-market"
 
 # Монеты для подписки (глубина 5, обновление раз в 500 мс)
-PAIRS = ["BTC-USDT", "ETH-USDT", "SOL-USDT", "XRP-USDT", "DOGE-USDT"]
+PAIRS = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'XRP-USDT', 'DOGE-USDT', 'SUI-USDT', 'LTC-USDT', 'IP-USDT', 'ADA-USDT',
+         'TON-USDT'] # отсутствует TON
 SUBSCRIPTIONS = [{"id": "bingx-depth", "reqType": "sub", "dataType": f"{pair}@depth5@500ms"} for pair in PAIRS]
-
+# TONUSDT
 # Словарь для хранения цен
 bingx_prices = {
-    "BTCUSDT": {},
-    "ETHUSDT": {},
-    "SOLUSDT": {},
-    "XRPUSDT": {},
-    "DOGEUSDT": {},
+    'BTCUSDT': {},
+    'ETHUSDT': {},
+    'SOLUSDT': {},
+    'XRPUSDT': {},
+    'DOGEUSDT': {},
+    'SUIUSDT': {},
+    'LTCUSDT': {},
+    'IPUSDT': {},
+    'ADAUSDT': {},
+    'TONUSDT': {}
 }
 
 

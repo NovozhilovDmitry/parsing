@@ -7,16 +7,22 @@ import time
 OKX_WS_URL = "wss://ws.okx.com:8443/ws/v5/public"
 
 # Монеты для подписки
-PAIRS = ["BTC-USDT", "ETH-USDT", "SOL-USDT", "XRP-USDT", "DOGE-USDT"]
+PAIRS = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'XRP-USDT', 'DOGE-USDT', 'SUI-USDT', 'LTC-USDT', 'IP-USDT', 'ADA-USDT',
+         'TON-USDT']
 SUBSCRIPTIONS = [{"op": "subscribe", "args": [{"channel": "tickers", "instId": pair}]} for pair in PAIRS]
 
 # Словарь для хранения цен
 okx_prices = {
-    "BTCUSDT": {},
-    "ETHUSDT": {},
-    "SOLUSDT": {},
-    "XRPUSDT": {},
-    "DOGEUSDT": {},
+    'BTCUSDT': {},
+    'ETHUSDT': {},
+    'SOLUSDT': {},
+    'XRPUSDT': {},
+    'DOGEUSDT': {},
+    'SUIUSDT': {},
+    'LTCUSDT': {},
+    'IPUSDT': {},
+    'ADAUSDT': {},
+    'TONUSDT': {}
 }
 
 

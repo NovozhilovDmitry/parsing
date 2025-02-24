@@ -8,16 +8,22 @@ import gzip
 HTX_WS_URL = "wss://api.huobi.pro/ws"
 
 # Монеты для подписки (формат HTX: `market.<pair>.depth.step0`)
-PAIRS = ["btcusdt", "ethusdt", "solusdt", "xrpusdt", "dogeusdt"]
+PAIRS = ['btcusdt', 'ethusdt', 'solusdt', 'xrpusdt', 'dogeusdt', 'suiusdt', 'ltcusdt', 'tonusdt', 'adausdt',
+         'ipusdt'] # ipusdt отсутствует
 SUBSCRIPTIONS = [{"sub": f"market.{pair}.depth.step0", "id": pair} for pair in PAIRS]
 
 # Словарь для хранения цен
 htx_prices = {
-    "BTCUSDT": {},
-    "ETHUSDT": {},
-    "SOLUSDT": {},
-    "XRPUSDT": {},
-    "DOGEUSDT": {},
+    'BTCUSDT': {},
+    'ETHUSDT': {},
+    'SOLUSDT': {},
+    'XRPUSDT': {},
+    'DOGEUSDT': {},
+    'SUIUSDT': {},
+    'LTCUSDT': {},
+    'IPUSDT': {},
+    'ADAUSDT': {},
+    'TONUSDT': {}
 }
 
 

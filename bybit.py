@@ -7,16 +7,21 @@ import time
 BYBIT_WS_URL = "wss://stream.bybit.com/v5/public/spot"
 
 # Монеты для подписки (нужно `orderbook.1.<pair>`)
-PAIRS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"]
+PAIRS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'SUIUSDT', 'LTCUSDT', 'IPUSDT', 'ADAUSDT', 'TONUSDT']
 SUBSCRIPTIONS = {"op": "subscribe", "args": [f"orderbook.1.{pair}" for pair in PAIRS]}
 
 # Словарь для хранения цен
 bybit_prices = {
-    "BTCUSDT": {},
-    "ETHUSDT": {},
-    "SOLUSDT": {},
-    "XRPUSDT": {},
-    "DOGEUSDT": {},
+    'BTCUSDT': {},
+    'ETHUSDT': {},
+    'SOLUSDT': {},
+    'XRPUSDT': {},
+    'DOGEUSDT': {},
+    'SUIUSDT': {},
+    'LTCUSDT': {},
+    'IPUSDT': {},
+    'ADAUSDT': {},
+    'TONUSDT': {}
 }
 
 # Класс WebSocket для Bybit
@@ -35,7 +40,6 @@ class BybitWebSocket:
     def on_message(self, ws, message):
         try:
             data = json.loads(message)
-
             if "success" in data and data["success"]:
                 print(f"🔔 Подписка успешна: {data}")
                 return

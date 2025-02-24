@@ -8,11 +8,16 @@ from okx import OKXWebSocket
 
 # Словарь для хранения цен
 prices_dict = {
-    "BTCUSDT": {},
-    "ETHUSDT": {},
-    "SOLUSDT": {},
-    "XRPUSDT": {},
-    "DOGEUSDT": {},
+    'BTCUSDT': {},
+    'ETHUSDT': {},
+    'SOLUSDT': {},
+    'XRPUSDT': {},
+    'DOGEUSDT': {},
+    'SUIUSDT': {},
+    'LTCUSDT': {},
+    'IPUSDT': {},
+    'ADAUSDT': {},
+    'TONUSDT': {}
 }
 
 # Порог прибыли для арбитража (например, 0.1%)
@@ -55,6 +60,7 @@ threads = [
 
 for thread in threads:
     thread.start()
+    time.sleep(1)
 
 # Функция поиска арбитражных возможностей
 def find_arbitrage_opportunities(prices):
