@@ -70,7 +70,7 @@ class BingXWebSocket:
 
     # Закрытие соединения
     def on_close(self, ws, close_status_code, close_msg):
-        logger.warning(f'WS: {ws}, Close_status_code: {close_status_code}, Close_msg: {close_msg}')
+        logger.warning(f'BINGX WS: {ws}, Close_status_code: {close_status_code}, Close_msg: {close_msg}')
         if self.reconnect:
             logger.error(f"⚠️ WebSocket BingX закрыт")
             logger.info("🔄 Переподключение к WebSocket BingX через 5 сек...")

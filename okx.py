@@ -67,7 +67,7 @@ class OKXWebSocket:
 
     # Закрытие соединения
     def on_close(self, ws, close_status_code, close_msg):
-        logger.warning(f'WS: {ws}, Close_status_code: {close_status_code}, Close_msg: {close_msg}')
+        logger.warning(f'OKX WS: {ws}, Close_status_code: {close_status_code}, Close_msg: {close_msg}')
         if self.reconnect:
             logger.error("❌ WebSocket OKX закрыт")
             logger.info("🔄 Переподключение к WebSocket OKX через 5 сек...")

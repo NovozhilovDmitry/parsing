@@ -70,7 +70,7 @@ class BybitWebSocket:
 
     # Закрытие соединения
     def on_close(self, ws, close_status_code, close_msg):
-        logger.warning(f'WS: {ws}, Close_status_code: {close_status_code}, Close_msg: {close_msg}')
+        logger.warning(f'BYBIT WS: {ws}, Close_status_code: {close_status_code}, Close_msg: {close_msg}')
         if self.reconnect:
             logger.error(print("❌ WebSocket Bybit закрыт"))
             logger.info("🔄 Переподключение к WebSocket Bybit через 5 сек...")
