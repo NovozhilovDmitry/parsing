@@ -13,6 +13,14 @@ trade_handler.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
 trade_logger.addHandler(trade_handler)
 trade_logger.addHandler(console_output)
 
+# Добавляем логгер для отслеживания тренда
+trend_logger = logging.getLogger("trend_logger")
+trend_logger.setLevel(logging.INFO)
+trend_handler = logging.FileHandler("logs/trend_log.txt")
+trend_handler.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
+trend_logger.addHandler(trend_handler)
+trend_logger.addHandler(console_output)
+
 # ----------------- Глобальные переменные -----------------
 # Начальный баланс (общий кошелёк)
 wallet = 1000.0
@@ -28,6 +36,8 @@ SHORT_WINDOW = 5  # короткое окно для SMA (секунд)
 LONG_WINDOW = 15  # длинное окно для SMA (секунд)
 TREND_THRESHOLD = 0.0005  # 0.05% разница между SMA для входа
 PROFIT_TARGET = 0.005  # 0.5% целевая прибыль для выхода
+REVERSAL_PROFIT_THRESHOLD = 0.0025  # 0.25% для выхода при развороте тренда (ниже основного порога)
+STOP_LOSS = 0.01  # 1% максимальные потери (стоп-лосс)
 MIN_INTERVAL = 10  # минимум 10 секунд между сделками
 SAMPLE_INTERVAL = 0.5  # обновление каждые 0.5 секунды
 TRADING_FEE = 0.001  # комиссия 0.1% за сделку (на вход и выход)
@@ -51,6 +61,7 @@ def trading_strategy(prices):
     trend_direction = {symbol: None for symbol in prices.keys()}  # "up", "down" или None
     trend_start_time = {symbol: None for symbol in prices.keys()}  # Время начала разворота
     last_prices = {symbol: None for symbol in prices.keys()}  # Предыдущая цена
+    trend_duration = {symbol: 0 for symbol in prices.keys()}  # Длительность текущего тренда в секундах
 
     while True:
         now = time.time()
@@ -82,64 +93,135 @@ def trading_strategy(prices):
             if last_prices[symbol] is not None and positions[symbol] is not None:
                 current_direction = "up" if mid_price > last_prices[symbol] else "down"
 
+                # Логируем изменение цены и направление
+                price_change = ((mid_price - last_prices[symbol]) / last_prices[symbol]) * 100
+                trend_logger.info(
+                    f"{symbol}: Текущая цена: {mid_price:.6f}, Изменение: {price_change:.4f}%, Направление: {current_direction}")
+
                 # Проверяем разворот тренда в зависимости от типа позиции
                 if positions[symbol] == "long":
+                    # Расчет текущей прибыли/убытка для LONG позиции
+                    profit_percent = (mid_price - entry_prices[symbol]) / entry_prices[symbol]
+
+                    # Проверяем СТОП-ЛОСС для LONG позиции
+                    if profit_percent <= -STOP_LOSS:
+                        new_balance = trade_amount[symbol] * (1 + profit_percent - 2 * TRADING_FEE)
+                        trade_logger.info(
+                            f"ПРОДАЖА (СТОП-ЛОСС): {symbol} по цене {mid_price:.6f}, убыток {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                        print(
+                            f"ПРОДАЖА (СТОП-ЛОСС): {symbol} по цене {mid_price:.6f}, убыток {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                        wallet = new_balance
+                        positions[symbol] = None
+                        entry_prices[symbol] = None
+                        trade_amount[symbol] = None
+                        trend_direction[symbol] = None
+                        trend_start_time[symbol] = None
+                        last_trade_time[symbol] = now
+                        continue
+
                     # Для LONG: опасный разворот - это падение цены
                     if current_direction == "down":
                         if trend_direction[symbol] != "down":
                             # Новый разворот тренда вниз
                             trend_direction[symbol] = "down"
                             trend_start_time[symbol] = now
-                        elif now - trend_start_time[symbol] >= TREND_REVERSAL_TIME:
-                            # Разворот продолжается TREND_REVERSAL_TIME секунд
-                            # Проверяем, приближается ли цена к целевой прибыли
-                            profit_percent = (mid_price - entry_prices[symbol]) / entry_prices[symbol]
-                            if profit_percent >= 0.005:  # 0.5% - требуемый порог
-                                new_balance = trade_amount[symbol] * (1 + profit_percent - 2 * TRADING_FEE)
-                                trade_logger.info(
-                                    f"ПРОДАЖА (РАЗВОРОТ): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
-                                print(
-                                    f"ПРОДАЖА (РАЗВОРОТ): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
-                                wallet = new_balance
-                                positions[symbol] = None
-                                entry_prices[symbol] = None
-                                trade_amount[symbol] = None
-                                trend_direction[symbol] = None
-                                trend_start_time[symbol] = None
-                                last_trade_time[symbol] = now
+                            trend_duration[symbol] = 0
+                            trend_logger.info(
+                                f"{symbol}: Обнаружен новый НИСХОДЯЩИЙ тренд при LONG позиции. Цена: {mid_price:.6f}")
+                        else:
+                            # Продолжаем отслеживать НИСХОДЯЩИЙ тренд
+                            trend_duration[symbol] = now - trend_start_time[symbol]
+                            trend_logger.info(
+                                f"{symbol}: НИСХОДЯЩИЙ тренд продолжается {trend_duration[symbol]:.1f} сек. Цена: {mid_price:.6f}")
+
+                            if trend_duration[symbol] >= TREND_REVERSAL_TIME:
+                                # Разворот продолжается TREND_REVERSAL_TIME секунд
+                                # Проверяем, достаточна ли прибыль для выхода
+                                if profit_percent >= REVERSAL_PROFIT_THRESHOLD:  # Используем сниженный порог
+                                    new_balance = trade_amount[symbol] * (1 + profit_percent - 2 * TRADING_FEE)
+                                    trade_logger.info(
+                                        f"ПРОДАЖА (РАЗВОРОТ): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                                    print(
+                                        f"ПРОДАЖА (РАЗВОРОТ): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                                    wallet = new_balance
+                                    positions[symbol] = None
+                                    entry_prices[symbol] = None
+                                    trade_amount[symbol] = None
+                                    trend_direction[symbol] = None
+                                    trend_start_time[symbol] = None
+                                    last_trade_time[symbol] = now
+                                else:
+                                    trend_logger.info(
+                                        f"{symbol}: Разворот тренда обнаружен, но прибыль ({profit_percent * 100:.2f}%) недостаточна для выхода (порог: {REVERSAL_PROFIT_THRESHOLD * 100:.2f}%)")
                     else:
                         # Тренд идет в нужном направлении, сбрасываем отслеживание разворота
+                        if trend_direction[symbol] == "down":
+                            trend_logger.info(f"{symbol}: НИСХОДЯЩИЙ тренд прерван. Цена: {mid_price:.6f}")
                         trend_direction[symbol] = None
                         trend_start_time[symbol] = None
+                        trend_duration[symbol] = 0
 
                 elif positions[symbol] == "short":
+                    # Расчет текущей прибыли/убытка для SHORT позиции
+                    profit_percent = (entry_prices[symbol] - mid_price) / entry_prices[symbol]
+
+                    # Проверяем СТОП-ЛОСС для SHORT позиции
+                    if profit_percent <= -STOP_LOSS:
+                        new_balance = trade_amount[symbol] * (1 + profit_percent - 2 * TRADING_FEE)
+                        trade_logger.info(
+                            f"ПОКУПКА (СТОП-ЛОСС): {symbol} по цене {mid_price:.6f}, убыток {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                        print(
+                            f"ПОКУПКА (СТОП-ЛОСС): {symbol} по цене {mid_price:.6f}, убыток {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                        wallet = new_balance
+                        positions[symbol] = None
+                        entry_prices[symbol] = None
+                        trade_amount[symbol] = None
+                        trend_direction[symbol] = None
+                        trend_start_time[symbol] = None
+                        last_trade_time[symbol] = now
+                        continue
+
                     # Для SHORT: опасный разворот - это рост цены
                     if current_direction == "up":
                         if trend_direction[symbol] != "up":
                             # Новый разворот тренда вверх
                             trend_direction[symbol] = "up"
                             trend_start_time[symbol] = now
-                        elif now - trend_start_time[symbol] >= TREND_REVERSAL_TIME:
-                            # Разворот продолжается TREND_REVERSAL_TIME секунд
-                            # Проверяем, приближается ли цена к целевой прибыли
-                            profit_percent = (entry_prices[symbol] - mid_price) / entry_prices[symbol]
-                            if profit_percent >= 0.005:  # 0.5% - требуемый порог
-                                new_balance = trade_amount[symbol] * (1 + profit_percent - 2 * TRADING_FEE)
-                                trade_logger.info(
-                                    f"ПОКУПКА (РАЗВОРОТ): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
-                                print(
-                                    f"ПОКУПКА (РАЗВОРОТ): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
-                                wallet = new_balance
-                                positions[symbol] = None
-                                entry_prices[symbol] = None
-                                trade_amount[symbol] = None
-                                trend_direction[symbol] = None
-                                trend_start_time[symbol] = None
-                                last_trade_time[symbol] = now
+                            trend_duration[symbol] = 0
+                            trend_logger.info(
+                                f"{symbol}: Обнаружен новый ВОСХОДЯЩИЙ тренд при SHORT позиции. Цена: {mid_price:.6f}")
+                        else:
+                            # Продолжаем отслеживать ВОСХОДЯЩИЙ тренд
+                            trend_duration[symbol] = now - trend_start_time[symbol]
+                            trend_logger.info(
+                                f"{symbol}: ВОСХОДЯЩИЙ тренд продолжается {trend_duration[symbol]:.1f} сек. Цена: {mid_price:.6f}")
+
+                            if trend_duration[symbol] >= TREND_REVERSAL_TIME:
+                                # Разворот продолжается TREND_REVERSAL_TIME секунд
+                                # Проверяем, достаточна ли прибыль для выхода
+                                if profit_percent >= REVERSAL_PROFIT_THRESHOLD:  # Используем сниженный порог
+                                    new_balance = trade_amount[symbol] * (1 + profit_percent - 2 * TRADING_FEE)
+                                    trade_logger.info(
+                                        f"ПОКУПКА (РАЗВОРОТ): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                                    print(
+                                        f"ПОКУПКА (РАЗВОРОТ): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                                    wallet = new_balance
+                                    positions[symbol] = None
+                                    entry_prices[symbol] = None
+                                    trade_amount[symbol] = None
+                                    trend_direction[symbol] = None
+                                    trend_start_time[symbol] = None
+                                    last_trade_time[symbol] = now
+                                else:
+                                    trend_logger.info(
+                                        f"{symbol}: Разворот тренда обнаружен, но прибыль ({profit_percent * 100:.2f}%) недостаточна для выхода (порог: {REVERSAL_PROFIT_THRESHOLD * 100:.2f}%)")
                     else:
                         # Тренд идет в нужном направлении, сбрасываем отслеживание разворота
+                        if trend_direction[symbol] == "up":
+                            trend_logger.info(f"{symbol}: ВОСХОДЯЩИЙ тренд прерван. Цена: {mid_price:.6f}")
                         trend_direction[symbol] = None
                         trend_start_time[symbol] = None
+                        trend_duration[symbol] = 0
 
             # Сохраняем текущую цену для следующей итерации
             last_prices[symbol] = mid_price
