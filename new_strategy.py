@@ -2,7 +2,7 @@ import time
 import threading
 import statistics
 import logging
-from test_bybit import BybitWebSocket  # Реальные данные от Bybit
+from test_bybit import BybitWebSocket  # Импортируем класс BybitWebSocket из файла bybit.py
 
 # ----------------- Настройка логирования сделок -----------------
 trade_logger = logging.getLogger("trade_logger")
@@ -19,76 +19,132 @@ wallet = 1000.0
 
 # Глобальный словарь цен – данные обновляются модулем bybit.py (реальные данные)
 prices = {
-    "BTCUSDT": {},  # обновляется prices["BTCUSDT"]["bybit"]
-    "ETHUSDT": {},  # обновляется prices["ETHUSDT"]["bybit"]
+    "BTCUSDT": {},
+    "ETHUSDT": {}
 }
 
 # ----------------- Параметры стратегии -----------------
 SHORT_WINDOW = 5  # короткое окно для SMA (секунд)
 LONG_WINDOW = 15  # длинное окно для SMA (секунд)
 TREND_THRESHOLD = 0.0005  # 0.05% разница между SMA для входа
-PROFIT_TARGET = 0.001  # 0.1% целевая чистая прибыль для выхода
-MIN_INTERVAL = 10  # минимум 20 секунд между сделками
-SAMPLE_INTERVAL = 1  # обновление каждую секунду
+PROFIT_TARGET = 0.005  # 0.5% целевая прибыль для выхода
+MIN_INTERVAL = 10  # минимум 10 секунд между сделками
+SAMPLE_INTERVAL = 0.5  # обновление каждые 0.5 секунды
 TRADING_FEE = 0.001  # комиссия 0.1% за сделку (на вход и выход)
 MIN_LIQUIDITY = 10000  # порог ликвидности
+TREND_REVERSAL_TIME = 5  # время для определения разворота тренда (секунды)
 
 
 # ----------------- Торговая стратегия -----------------
 def trading_strategy(prices):
     global wallet
-    # Хранение истории цен (mid-цены) для каждого символа (используем данные с Bybit)
-    price_history = {
-        "BTCUSDT": [],
-        "ETHUSDT": []
-    }
-    # Текущее состояние позиции: None, "long" или "short"
-    positions = {
-        "BTCUSDT": None,
-        "ETHUSDT": None
-    }
-    # Цена входа для расчёта прибыли
-    entry_prices = {
-        "BTCUSDT": None,
-        "ETHUSDT": None
-    }
-    # Сумма, использованная при открытии сделки (чтобы потом пересчитать баланс)
-    trade_amount = {
-        "BTCUSDT": None,
-        "ETHUSDT": None
-    }
-    # Время последней сделки для каждого символа
-    last_trade_time = {
-        "BTCUSDT": 0,
-        "ETHUSDT": 0
-    }
+    # Хранение истории цен (mid-цены) для каждого символа
+    price_history = {symbol: [] for symbol in prices.keys()}
+
+    # Информация о позициях
+    positions = {symbol: None for symbol in prices.keys()}  # None, "long" или "short"
+    entry_prices = {symbol: None for symbol in prices.keys()}  # Цена входа
+    trade_amount = {symbol: None for symbol in prices.keys()}  # Сумма сделки
+    last_trade_time = {symbol: 0 for symbol in prices.keys()}  # Время последней сделки
+
+    # Для отслеживания разворота тренда
+    trend_direction = {symbol: None for symbol in prices.keys()}  # "up", "down" или None
+    trend_start_time = {symbol: None for symbol in prices.keys()}  # Время начала разворота
+    last_prices = {symbol: None for symbol in prices.keys()}  # Предыдущая цена
 
     while True:
         now = time.time()
-        for symbol in ["BTCUSDT", "ETHUSDT"]:
+
+        for symbol in prices.keys():
             bybit_data = prices.get(symbol, {}).get("bybit", {})
             bid = bybit_data.get("bid")
             ask = bybit_data.get("ask")
-            liquidity = bybit_data.get("liquidity", 1e6)
-            if bid is None or ask is None or liquidity < MIN_LIQUIDITY:
+
+            if bid is None or ask is None:
                 continue
 
             mid_price = (bid + ask) / 2.0
 
-            # Обновляем историю цен для символа
+            # Обновляем историю цен
             price_history[symbol].append(mid_price)
             if len(price_history[symbol]) > LONG_WINDOW:
                 price_history[symbol].pop(0)
 
+            # Пропускаем, если недостаточно исторических данных
             if len(price_history[symbol]) < LONG_WINDOW:
                 continue
 
             # Вычисляем SMA
             sma_short = statistics.mean(price_history[symbol][-SHORT_WINDOW:])
             sma_long = statistics.mean(price_history[symbol])
-            print(f"{symbol}: mid={mid_price:.2f}, SMA_short={sma_short:.2f}, SMA_long={sma_long:.2f}")
 
-            # Проверяем, что ни для одного символа нет открытой сделки (используем весь кошелёк)
+            # Отслеживание разворота тренда
+            if last_prices[symbol] is not None and positions[symbol] is not None:
+                current_direction = "up" if mid_price > last_prices[symbol] else "down"
+
+                # Проверяем разворот тренда в зависимости от типа позиции
+                if positions[symbol] == "long":
+                    # Для LONG: опасный разворот - это падение цены
+                    if current_direction == "down":
+                        if trend_direction[symbol] != "down":
+                            # Новый разворот тренда вниз
+                            trend_direction[symbol] = "down"
+                            trend_start_time[symbol] = now
+                        elif now - trend_start_time[symbol] >= TREND_REVERSAL_TIME:
+                            # Разворот продолжается TREND_REVERSAL_TIME секунд
+                            # Проверяем, приближается ли цена к целевой прибыли
+                            profit_percent = (mid_price - entry_prices[symbol]) / entry_prices[symbol]
+                            if profit_percent >= 0.005:  # 0.5% - требуемый порог
+                                new_balance = trade_amount[symbol] * (1 + profit_percent - 2 * TRADING_FEE)
+                                trade_logger.info(
+                                    f"ПРОДАЖА (РАЗВОРОТ): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                                print(
+                                    f"ПРОДАЖА (РАЗВОРОТ): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                                wallet = new_balance
+                                positions[symbol] = None
+                                entry_prices[symbol] = None
+                                trade_amount[symbol] = None
+                                trend_direction[symbol] = None
+                                trend_start_time[symbol] = None
+                                last_trade_time[symbol] = now
+                    else:
+                        # Тренд идет в нужном направлении, сбрасываем отслеживание разворота
+                        trend_direction[symbol] = None
+                        trend_start_time[symbol] = None
+
+                elif positions[symbol] == "short":
+                    # Для SHORT: опасный разворот - это рост цены
+                    if current_direction == "up":
+                        if trend_direction[symbol] != "up":
+                            # Новый разворот тренда вверх
+                            trend_direction[symbol] = "up"
+                            trend_start_time[symbol] = now
+                        elif now - trend_start_time[symbol] >= TREND_REVERSAL_TIME:
+                            # Разворот продолжается TREND_REVERSAL_TIME секунд
+                            # Проверяем, приближается ли цена к целевой прибыли
+                            profit_percent = (entry_prices[symbol] - mid_price) / entry_prices[symbol]
+                            if profit_percent >= 0.005:  # 0.5% - требуемый порог
+                                new_balance = trade_amount[symbol] * (1 + profit_percent - 2 * TRADING_FEE)
+                                trade_logger.info(
+                                    f"ПОКУПКА (РАЗВОРОТ): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                                print(
+                                    f"ПОКУПКА (РАЗВОРОТ): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                                wallet = new_balance
+                                positions[symbol] = None
+                                entry_prices[symbol] = None
+                                trade_amount[symbol] = None
+                                trend_direction[symbol] = None
+                                trend_start_time[symbol] = None
+                                last_trade_time[symbol] = now
+                    else:
+                        # Тренд идет в нужном направлении, сбрасываем отслеживание разворота
+                        trend_direction[symbol] = None
+                        trend_start_time[symbol] = None
+
+            # Сохраняем текущую цену для следующей итерации
+            last_prices[symbol] = mid_price
+
+            # Проверяем, можно ли открыть новую позицию
             if all(pos is None for pos in positions.values()) and wallet > 0 and (
                     now - last_trade_time[symbol] > MIN_INTERVAL):
                 trade_logger.info(f'Wallet: {wallet}')
@@ -98,50 +154,58 @@ def trading_strategy(prices):
                     entry_prices[symbol] = mid_price
                     trade_amount[symbol] = wallet  # используем весь кошелёк
                     last_trade_time[symbol] = now
-                    trade_logger.info(f"{symbol}: ВХОД LONG по цене {mid_price:.2f}. Баланс: {wallet:.2f}")
-                    print(f"{symbol}: ВХОД LONG по цене {mid_price:.2f}. Баланс: {wallet:.2f}")
+                    trade_logger.info(f"{symbol}: ВХОД LONG по цене {mid_price:.6f}. Баланс: {wallet:.2f}")
+                    print(f"{symbol}: ВХОД LONG по цене {mid_price:.6f}. Баланс: {wallet:.2f}")
                     wallet = 0  # весь баланс инвестирован
+
                 # Вход SHORT: если краткосрочное SMA значительно ниже длинного SMA
                 elif sma_short < sma_long * (1 - TREND_THRESHOLD):
                     positions[symbol] = "short"
                     entry_prices[symbol] = mid_price
                     trade_amount[symbol] = wallet  # используем весь кошелёк
                     last_trade_time[symbol] = now
-                    trade_logger.info(f"{symbol}: ВХОД SHORT по цене {mid_price:.2f}. Баланс: {wallet:.2f}")
-                    print(f"{symbol}: ВХОД SHORT по цене {mid_price:.2f}. Баланс: {wallet:.2f}")
+                    trade_logger.info(f"{symbol}: ВХОД SHORT по цене {mid_price:.6f}. Баланс: {wallet:.2f}")
+                    print(f"{symbol}: ВХОД SHORT по цене {mid_price:.6f}. Баланс: {wallet:.2f}")
                     wallet = 0
-            else:
-                # Если позиция уже открыта для данного символа, проверяем условия выхода
-                if positions[symbol] == "long":
-                    # Для LONG: прибыль = (текущая цена - цена входа) / цена входа
-                    gross_profit = (mid_price - entry_prices[symbol]) / entry_prices[symbol]
-                    net_profit = gross_profit - 2 * TRADING_FEE  # вычитаем комиссию
-                    if net_profit >= PROFIT_TARGET and sma_short < sma_long:
-                        new_balance = trade_amount[symbol] * (1 + net_profit)
-                        print(
-                            f"{symbol}: ВЫХОД LONG по цене {mid_price:.2f}, прибыль {net_profit * 100:.2f}%, новый баланс {new_balance:.2f}")
-                        trade_logger.info(
-                            f"купил токен {symbol} по цене {entry_prices[symbol]:.2f}. Продал токен {symbol} по цене {mid_price:.2f}. Прибыль {net_profit * 100:.2f}%. Новый баланс {new_balance:.2f}")
-                        wallet = new_balance
-                        positions[symbol] = None
-                        entry_prices[symbol] = None
-                        trade_amount[symbol] = None
-                        last_trade_time[symbol] = now
-                elif positions[symbol] == "short":
-                    # Для SHORT: прибыль = (цена входа - текущая цена) / цена входа
-                    gross_profit = (entry_prices[symbol] - mid_price) / entry_prices[symbol]
-                    net_profit = gross_profit - 2 * TRADING_FEE
-                    if net_profit >= PROFIT_TARGET and sma_short > sma_long:
-                        new_balance = trade_amount[symbol] * (1 + net_profit)
-                        print(
-                            f"{symbol}: ВЫХОД SHORT по цене {mid_price:.2f}, прибыль {net_profit * 100:.2f}%, новый баланс {new_balance:.2f}")
-                        trade_logger.info(
-                            f"продал токен {symbol} по цене {entry_prices[symbol]:.2f}. Купил токен {symbol} по цене {mid_price:.2f}. Прибыль {net_profit * 100:.2f}%. Новый баланс {new_balance:.2f}")
-                        wallet = new_balance
-                        positions[symbol] = None
-                        entry_prices[symbol] = None
-                        trade_amount[symbol] = None
-                        last_trade_time[symbol] = now
+
+            # Если позиция открыта, проверяем условия для целевой прибыли
+            elif positions[symbol] == "long":
+                # Проверка на достижение целевой прибыли (PROFIT_TARGET = 0.5%)
+                profit_percent = (mid_price - entry_prices[symbol]) / entry_prices[symbol]
+
+                if profit_percent >= PROFIT_TARGET:
+                    net_profit = profit_percent - 2 * TRADING_FEE
+                    new_balance = trade_amount[symbol] * (1 + net_profit)
+                    trade_logger.info(
+                        f"ПРОДАЖА (ЦЕЛЬ): {symbol} по цене {mid_price:.6f}, прибыль {net_profit * 100:.2f}%, новый баланс {new_balance:.2f}")
+                    print(
+                        f"ПРОДАЖА (ЦЕЛЬ): {symbol} по цене {mid_price:.6f}, прибыль {net_profit * 100:.2f}%, новый баланс {new_balance:.2f}")
+                    wallet = new_balance
+                    positions[symbol] = None
+                    entry_prices[symbol] = None
+                    trade_amount[symbol] = None
+                    trend_direction[symbol] = None
+                    trend_start_time[symbol] = None
+                    last_trade_time[symbol] = now
+
+            elif positions[symbol] == "short":
+                # Проверка на достижение целевой прибыли (PROFIT_TARGET = 0.5%)
+                profit_percent = (entry_prices[symbol] - mid_price) / entry_prices[symbol]
+
+                if profit_percent >= PROFIT_TARGET:
+                    net_profit = profit_percent - 2 * TRADING_FEE
+                    new_balance = trade_amount[symbol] * (1 + net_profit)
+                    trade_logger.info(
+                        f"ПОКУПКА (ЦЕЛЬ): {symbol} по цене {mid_price:.6f}, прибыль {net_profit * 100:.2f}%, новый баланс {new_balance:.2f}")
+                    print(
+                        f"ПОКУПКА (ЦЕЛЬ): {symbol} по цене {mid_price:.6f}, прибыль {net_profit * 100:.2f}%, новый баланс {new_balance:.2f}")
+                    wallet = new_balance
+                    positions[symbol] = None
+                    entry_prices[symbol] = None
+                    trade_amount[symbol] = None
+                    trend_direction[symbol] = None
+                    trend_start_time[symbol] = None
+                    last_trade_time[symbol] = now
 
         time.sleep(SAMPLE_INTERVAL)
 
@@ -171,6 +235,10 @@ if __name__ == "__main__":
     strategy_thread.start()
 
     # Основной поток остаётся активным
-    while True:
-        print(f'Wallet: {wallet}\n')
-        time.sleep(1)
+    try:
+        while True:
+            print(f'{prices}\n')
+            print(f'Wallet: {wallet}\n')
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nПрограмма остановлена пользователем.")
