@@ -3,7 +3,7 @@ import threading
 import statistics
 import logging
 import math
-from test_bybit import BybitWebSocket  # Импортируем класс BybitWebSocket из файла bybit.py
+from test_bybit import BybitWebSocket
 
 
 trade_logger = logging.getLogger("trade_logger")
@@ -58,18 +58,18 @@ def trading_strategy(prices):
     global wallet
     price_history = {symbol: [] for symbol in prices.keys()}
     micro_price_history = {symbol: [] for symbol in prices.keys()}
-    positions = {symbol: None for symbol in prices.keys()}  # None, "long" или "short"
-    entry_prices = {symbol: None for symbol in prices.keys()}  # Цена входа
-    trade_amount = {symbol: None for symbol in prices.keys()}  # Сумма сделки
-    last_trade_time = {symbol: 0 for symbol in prices.keys()}  # Время последней сделки
-    entry_time = {symbol: None for symbol in prices.keys()}  # Время входа в позицию
-    trend_direction = {symbol: None for symbol in prices.keys()}  # "up", "down" или None
-    trend_start_time = {symbol: None for symbol in prices.keys()}  # Время начала разворота
-    last_prices = {symbol: None for symbol in prices.keys()}  # Предыдущая цена
-    trend_duration = {symbol: 0 for symbol in prices.keys()}  # Длительность текущего тренда в секундах
-    micro_trend = {symbol: None for symbol in prices.keys()}  # "up", "down" или None
-    micro_trend_duration = {symbol: 0 for symbol in prices.keys()}  # Количество последовательных цен в микротренде
-    micro_trend_start_price = {symbol: None for symbol in prices.keys()}  # Начальная цена микротренда
+    positions = {symbol: None for symbol in prices.keys()}
+    entry_prices = {symbol: None for symbol in prices.keys()}
+    trade_amount = {symbol: None for symbol in prices.keys()}
+    last_trade_time = {symbol: 0 for symbol in prices.keys()}
+    entry_time = {symbol: None for symbol in prices.keys()}
+    trend_direction = {symbol: None for symbol in prices.keys()}
+    trend_start_time = {symbol: None for symbol in prices.keys()}
+    last_prices = {symbol: None for symbol in prices.keys()}
+    trend_duration = {symbol: 0 for symbol in prices.keys()}
+    micro_trend = {symbol: None for symbol in prices.keys()}
+    micro_trend_duration = {symbol: 0 for symbol in prices.keys()}
+    micro_trend_start_price = {symbol: None for symbol in prices.keys()}
 
     while True:
         now = time.time()
@@ -298,7 +298,8 @@ def trading_strategy(prices):
                                     last_trade_time[symbol] = now
                                 else:
                                     trend_logger.info(
-                                        f"{symbol}: Разворот тренда обнаружен, но прибыль ({profit_percent * 100:.2f}%) недостаточна для выхода (порог: {REVERSAL_PROFIT_THRESHOLD * 100:.2f}%)")
+                                        f"{symbol}: Разворот тренда обнаружен, но прибыль ({profit_percent * 100:.2f}%)"
+                                        f" недостаточна для выхода (порог: {REVERSAL_PROFIT_THRESHOLD * 100:.2f}%)")
                     else:
                         if trend_direction[symbol] == "up":
                             trend_logger.info(f"{symbol}: ВОСХОДЯЩИЙ тренд прерван. Цена: {mid_price:.6f}")
@@ -325,8 +326,8 @@ def trading_strategy(prices):
                     positions[symbol] = "long"
                     entry_prices[symbol] = mid_price
                     entry_time[symbol] = now
-                    trade_amount[symbol] = wallet * 0.2  # используем 50% кошелька
-                    wallet -= trade_amount[symbol]  # оставляем остаток в кошельке
+                    trade_amount[symbol] = wallet * 0.2
+                    wallet -= trade_amount[symbol]
                     last_trade_time[symbol] = now
                     trade_logger.info(f"{symbol}: ВХОД LONG по цене {mid_price:.6f}. Баланс: {wallet:.2f}")
                     print(f"{symbol}: ВХОД LONG по цене {mid_price:.6f}. Баланс: {wallet:.2f}")
@@ -335,8 +336,8 @@ def trading_strategy(prices):
                     positions[symbol] = "short"
                     entry_prices[symbol] = mid_price
                     entry_time[symbol] = now
-                    trade_amount[symbol] = wallet * 0.2  # используем 50% кошелька
-                    wallet -= trade_amount[symbol]  # оставляем остаток в кошельке
+                    trade_amount[symbol] = wallet * 0.2
+                    wallet -= trade_amount[symbol]
                     last_trade_time[symbol] = now
                     trade_logger.info(f"{symbol}: ВХОД SHORT по цене {mid_price:.6f}. Баланс: {wallet:.2f}")
                     print(f"{symbol}: ВХОД SHORT по цене {mid_price:.6f}. Баланс: {wallet:.2f}")
