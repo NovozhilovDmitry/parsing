@@ -34,15 +34,18 @@ prices = {
 # ----------------- Параметры стратегии -----------------
 SHORT_WINDOW = 5  # короткое окно для SMA (секунд)
 LONG_WINDOW = 15  # длинное окно для SMA (секунд)
+MICRO_WINDOW = 3  # окно для микротренда (секунд)
 TREND_THRESHOLD = 0.0005  # 0.05% разница между SMA для входа
 PROFIT_TARGET = 0.005  # 0.5% целевая прибыль для выхода
-REVERSAL_PROFIT_THRESHOLD = 0.0025  # 0.25% для выхода при развороте тренда (ниже основного порога)
-STOP_LOSS = 0.01  # 1% максимальные потери (стоп-лосс)
-MIN_INTERVAL = 10  # минимум 10 секунд между сделками
+REVERSAL_PROFIT_THRESHOLD = 0.002  # 0.2% для выхода при развороте тренда (ниже основного порога)
+MICRO_PROFIT_THRESHOLD = 0.001  # 0.1% для выхода при микроразвороте
+STOP_LOSS = 0.005  # Уменьшен с 1% до 0.5% максимальные потери (стоп-лосс)
+MIN_INTERVAL = 5  # минимум 5 секунд между сделками (уменьшено с 10)
 SAMPLE_INTERVAL = 0.5  # обновление каждые 0.5 секунды
 TRADING_FEE = 0.001  # комиссия 0.1% за сделку (на вход и выход)
 MIN_LIQUIDITY = 10000  # порог ликвидности
-TREND_REVERSAL_TIME = 5  # время для определения разворота тренда (секунды)
+TREND_REVERSAL_TIME = 3  # время для определения разворота тренда (секунды, уменьшено с 5)
+PRICE_CHECK_WINDOW = 4  # количество проверок цены для микротренда
 
 
 # ----------------- Торговая стратегия -----------------
@@ -51,17 +54,26 @@ def trading_strategy(prices):
     # Хранение истории цен (mid-цены) для каждого символа
     price_history = {symbol: [] for symbol in prices.keys()}
 
+    # Для отслеживания микротрендов
+    micro_price_history = {symbol: [] for symbol in prices.keys()}
+
     # Информация о позициях
     positions = {symbol: None for symbol in prices.keys()}  # None, "long" или "short"
     entry_prices = {symbol: None for symbol in prices.keys()}  # Цена входа
     trade_amount = {symbol: None for symbol in prices.keys()}  # Сумма сделки
     last_trade_time = {symbol: 0 for symbol in prices.keys()}  # Время последней сделки
+    entry_time = {symbol: None for symbol in prices.keys()}  # Время входа в позицию
 
     # Для отслеживания разворота тренда
     trend_direction = {symbol: None for symbol in prices.keys()}  # "up", "down" или None
     trend_start_time = {symbol: None for symbol in prices.keys()}  # Время начала разворота
     last_prices = {symbol: None for symbol in prices.keys()}  # Предыдущая цена
     trend_duration = {symbol: 0 for symbol in prices.keys()}  # Длительность текущего тренда в секундах
+
+    # Для отслеживания микроразворотов
+    micro_trend = {symbol: None for symbol in prices.keys()}  # "up", "down" или None
+    micro_trend_duration = {symbol: 0 for symbol in prices.keys()}  # Количество последовательных цен в микротренде
+    micro_trend_start_price = {symbol: None for symbol in prices.keys()}  # Начальная цена микротренда
 
     while True:
         now = time.time()
@@ -81,13 +93,109 @@ def trading_strategy(prices):
             if len(price_history[symbol]) > LONG_WINDOW:
                 price_history[symbol].pop(0)
 
+            # Обновляем историю цен для микротренда
+            micro_price_history[symbol].append(mid_price)
+            if len(micro_price_history[symbol]) > MICRO_WINDOW:
+                micro_price_history[symbol].pop(0)
+
             # Пропускаем, если недостаточно исторических данных
             if len(price_history[symbol]) < LONG_WINDOW:
                 continue
 
+            # Анализ микротренда
+            if len(micro_price_history[symbol]) == MICRO_WINDOW and positions[symbol] is not None:
+                current_micro_direction = None
+                # Определяем текущее направление микротренда
+                if all(micro_price_history[symbol][i] < micro_price_history[symbol][i + 1] for i in
+                       range(MICRO_WINDOW - 1)):
+                    current_micro_direction = "up"
+                elif all(micro_price_history[symbol][i] > micro_price_history[symbol][i + 1] for i in
+                         range(MICRO_WINDOW - 1)):
+                    current_micro_direction = "down"
+
+                # Если обнаружили микротренд, противоположный нашей позиции
+                if current_micro_direction is not None:
+                    if positions[symbol] == "long" and current_micro_direction == "down":
+                        # Расчет прибыли для LONG
+                        profit_percent = (mid_price - entry_prices[symbol]) / entry_prices[symbol]
+                        if profit_percent >= MICRO_PROFIT_THRESHOLD:
+                            new_balance = trade_amount[symbol] * (1 + profit_percent - 2 * TRADING_FEE)
+                            trade_logger.info(
+                                f"ПРОДАЖА (МИКРО-РАЗВОРОТ): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                            print(
+                                f"ПРОДАЖА (МИКРО-РАЗВОРОТ): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                            wallet = new_balance
+                            positions[symbol] = None
+                            entry_prices[symbol] = None
+                            trade_amount[symbol] = None
+                            trend_direction[symbol] = None
+                            trend_start_time[symbol] = None
+                            last_trade_time[symbol] = now
+                            continue
+
+                    elif positions[symbol] == "short" and current_micro_direction == "up":
+                        # Расчет прибыли для SHORT
+                        profit_percent = (entry_prices[symbol] - mid_price) / entry_prices[symbol]
+                        if profit_percent >= MICRO_PROFIT_THRESHOLD:
+                            new_balance = trade_amount[symbol] * (1 + profit_percent - 2 * TRADING_FEE)
+                            trade_logger.info(
+                                f"ПОКУПКА (МИКРО-РАЗВОРОТ): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                            print(
+                                f"ПОКУПКА (МИКРО-РАЗВОРОТ): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                            wallet = new_balance
+                            positions[symbol] = None
+                            entry_prices[symbol] = None
+                            trade_amount[symbol] = None
+                            trend_direction[symbol] = None
+                            trend_start_time[symbol] = None
+                            last_trade_time[symbol] = now
+                            continue
+
             # Вычисляем SMA
             sma_short = statistics.mean(price_history[symbol][-SHORT_WINDOW:])
             sma_long = statistics.mean(price_history[symbol])
+
+            # Проверка на ранний выход с прибылью при резком изменении цены
+            if positions[symbol] is not None and entry_time[symbol] is not None:
+                time_in_position = now - entry_time[symbol]
+                # Если в позиции хотя бы 3 секунды, проверяем возможность раннего выхода
+                if time_in_position >= 3:
+                    if positions[symbol] == "long":
+                        profit_percent = (mid_price - entry_prices[symbol]) / entry_prices[symbol]
+                        # Если цена быстро двигается в нашу пользу, фиксируем прибыль
+                        if profit_percent >= MICRO_PROFIT_THRESHOLD and sma_short < sma_long:
+                            new_balance = trade_amount[symbol] * (1 + profit_percent - 2 * TRADING_FEE)
+                            trade_logger.info(
+                                f"ПРОДАЖА (БЫСТРЫЙ ВЫХОД): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                            print(
+                                f"ПРОДАЖА (БЫСТРЫЙ ВЫХОД): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                            wallet = new_balance
+                            positions[symbol] = None
+                            entry_prices[symbol] = None
+                            trade_amount[symbol] = None
+                            entry_time[symbol] = None
+                            trend_direction[symbol] = None
+                            trend_start_time[symbol] = None
+                            last_trade_time[symbol] = now
+                            continue
+                    elif positions[symbol] == "short":
+                        profit_percent = (entry_prices[symbol] - mid_price) / entry_prices[symbol]
+                        # Если цена быстро двигается в нашу пользу, фиксируем прибыль
+                        if profit_percent >= MICRO_PROFIT_THRESHOLD and sma_short > sma_long:
+                            new_balance = trade_amount[symbol] * (1 + profit_percent - 2 * TRADING_FEE)
+                            trade_logger.info(
+                                f"ПОКУПКА (БЫСТРЫЙ ВЫХОД): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                            print(
+                                f"ПОКУПКА (БЫСТРЫЙ ВЫХОД): {symbol} по цене {mid_price:.6f}, прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                            wallet = new_balance
+                            positions[symbol] = None
+                            entry_prices[symbol] = None
+                            trade_amount[symbol] = None
+                            entry_time[symbol] = None
+                            trend_direction[symbol] = None
+                            trend_start_time[symbol] = None
+                            last_trade_time[symbol] = now
+                            continue
 
             # Отслеживание разворота тренда
             if last_prices[symbol] is not None and positions[symbol] is not None:
@@ -114,6 +222,7 @@ def trading_strategy(prices):
                         positions[symbol] = None
                         entry_prices[symbol] = None
                         trade_amount[symbol] = None
+                        entry_time[symbol] = None
                         trend_direction[symbol] = None
                         trend_start_time[symbol] = None
                         last_trade_time[symbol] = now
@@ -147,6 +256,7 @@ def trading_strategy(prices):
                                     positions[symbol] = None
                                     entry_prices[symbol] = None
                                     trade_amount[symbol] = None
+                                    entry_time[symbol] = None
                                     trend_direction[symbol] = None
                                     trend_start_time[symbol] = None
                                     last_trade_time[symbol] = now
@@ -176,6 +286,7 @@ def trading_strategy(prices):
                         positions[symbol] = None
                         entry_prices[symbol] = None
                         trade_amount[symbol] = None
+                        entry_time[symbol] = None
                         trend_direction[symbol] = None
                         trend_start_time[symbol] = None
                         last_trade_time[symbol] = now
@@ -209,6 +320,7 @@ def trading_strategy(prices):
                                     positions[symbol] = None
                                     entry_prices[symbol] = None
                                     trade_amount[symbol] = None
+                                    entry_time[symbol] = None
                                     trend_direction[symbol] = None
                                     trend_start_time[symbol] = None
                                     last_trade_time[symbol] = now
@@ -234,6 +346,7 @@ def trading_strategy(prices):
                 if sma_short > sma_long * (1 + TREND_THRESHOLD):
                     positions[symbol] = "long"
                     entry_prices[symbol] = mid_price
+                    entry_time[symbol] = now
                     trade_amount[symbol] = wallet  # используем весь кошелёк
                     last_trade_time[symbol] = now
                     trade_logger.info(f"{symbol}: ВХОД LONG по цене {mid_price:.6f}. Баланс: {wallet:.2f}")
@@ -244,6 +357,7 @@ def trading_strategy(prices):
                 elif sma_short < sma_long * (1 - TREND_THRESHOLD):
                     positions[symbol] = "short"
                     entry_prices[symbol] = mid_price
+                    entry_time[symbol] = now
                     trade_amount[symbol] = wallet  # используем весь кошелёк
                     last_trade_time[symbol] = now
                     trade_logger.info(f"{symbol}: ВХОД SHORT по цене {mid_price:.6f}. Баланс: {wallet:.2f}")
@@ -266,6 +380,7 @@ def trading_strategy(prices):
                     positions[symbol] = None
                     entry_prices[symbol] = None
                     trade_amount[symbol] = None
+                    entry_time[symbol] = None
                     trend_direction[symbol] = None
                     trend_start_time[symbol] = None
                     last_trade_time[symbol] = now
@@ -285,6 +400,7 @@ def trading_strategy(prices):
                     positions[symbol] = None
                     entry_prices[symbol] = None
                     trade_amount[symbol] = None
+                    entry_time[symbol] = None
                     trend_direction[symbol] = None
                     trend_start_time[symbol] = None
                     last_trade_time[symbol] = now
@@ -324,3 +440,4 @@ if __name__ == "__main__":
             time.sleep(1)
     except KeyboardInterrupt:
         print("\nПрограмма остановлена пользователем.")
+        print('Здесь будет повешена продажа существующих ордеров и выход в USDT')
