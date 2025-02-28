@@ -2,6 +2,7 @@ import time
 import threading
 import statistics
 import logging
+import math
 from test_bybit import BybitWebSocket  # Импортируем класс BybitWebSocket из файла bybit.py
 
 
@@ -28,21 +29,29 @@ prices = {
     "ETHUSDT": {}
 }
 
-SHORT_WINDOW = 5  # -> increase to 30 (seconds)
-LONG_WINDOW = 15  # -> increase to 90 (seconds)
-MICRO_WINDOW = 3  # -> increase to 10 (seconds)
-TREND_THRESHOLD = 0.0005  # -> increase to 0.001 (0.1%)
-PROFIT_TARGET = 0.005  # -> lower to 0.003 (0.3%)
-REVERSAL_PROFIT_THRESHOLD = 0.002  # -> adjust to 0.0015 (0.15%)
-MICRO_PROFIT_THRESHOLD = 0.001  # -> increase to 0.0015 (0.15%)
-STOP_LOSS = 0.005  # -> tighten to 0.003 (0.3%)
-TREND_REVERSAL_TIME = 3  # -> increase to 6 (seconds)
-MIN_INTERVAL = 5  # минимум 5 секунд между сделками (уменьшено с 10)
-SAMPLE_INTERVAL = 0.5  # обновление каждые 0.5 секунды
-TRADING_FEE = 0.001  # комиссия 0.1% за сделку (на вход и выход)
-MIN_LIQUIDITY = 10000  # порог ликвидности
-PRICE_CHECK_WINDOW = 4  # количество проверок цены для микротренда
-MAX_TIME_IN_POSITION = 300  # 5 minutes max in position
+SHORT_WINDOW = 30
+LONG_WINDOW = 90
+MICRO_WINDOW = 110
+TREND_THRESHOLD = 0.001
+PROFIT_TARGET = 0.003
+REVERSAL_PROFIT_THRESHOLD = 0.0015
+MICRO_PROFIT_THRESHOLD = 0.0015
+STOP_LOSS = 0.003
+TREND_REVERSAL_TIME = 6
+MIN_INTERVAL = 5
+SAMPLE_INTERVAL = 0.5
+TRADING_FEE = 0.001
+MIN_LIQUIDITY = 10000
+PRICE_CHECK_WINDOW = 4
+MAX_TIME_IN_POSITION = 300
+
+
+def is_volatility_excessive(prices, window=10, threshold=0.02):
+    if len(prices) < window:
+        return False
+    price_range = max(prices[-window:]) - min(prices[-window:])
+    avg_price = statistics.mean(prices[-window:])
+    return (price_range / avg_price) > threshold
 
 
 def trading_strategy(prices):
@@ -74,6 +83,9 @@ def trading_strategy(prices):
                 continue
 
             mid_price = (bid + ask) / 2.0
+
+            if mid_price <= 0 or math.isnan(mid_price):
+                continue
 
             price_history[symbol].append(mid_price)
             if len(price_history[symbol]) > LONG_WINDOW:
@@ -133,43 +145,40 @@ def trading_strategy(prices):
             sma_short = statistics.mean(price_history[symbol][-SHORT_WINDOW:])
             sma_long = statistics.mean(price_history[symbol])
 
+            sma_short_prev = statistics.mean(price_history[symbol][-SHORT_WINDOW - 1:-1]) if len(
+                price_history[symbol]) > SHORT_WINDOW + 1 else sma_short
+            sma_long_prev = statistics.mean(price_history[symbol][:-1]) if len(price_history[symbol]) > 1 else sma_long
+            ma_trend = "up" if sma_short > sma_long and sma_short_prev <= sma_long_prev else "down" \
+                if sma_short < sma_long and sma_short_prev >= sma_long_prev else None
+
             if positions[symbol] is not None and entry_time[symbol] is not None:
                 time_in_position = now - entry_time[symbol]
-                if time_in_position >= 3:
+                if time_in_position >= MAX_TIME_IN_POSITION:
                     if positions[symbol] == "long":
                         profit_percent = (mid_price - entry_prices[symbol]) / entry_prices[symbol]
-                        if profit_percent >= MICRO_PROFIT_THRESHOLD and sma_short < sma_long:
-                            new_balance = trade_amount[symbol] * (1 + profit_percent - 2 * TRADING_FEE)
-                            trade_logger.info(f"ПРОДАЖА (БЫСТРЫЙ ВЫХОД): {symbol} по цене {mid_price:.6f}, "
-                                              f"прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
-                            print(f"ПРОДАЖА (БЫСТРЫЙ ВЫХОД): {symbol} по цене {mid_price:.6f}, "
-                                  f"прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
-                            wallet = new_balance
-                            positions[symbol] = None
-                            entry_prices[symbol] = None
-                            trade_amount[symbol] = None
-                            entry_time[symbol] = None
-                            trend_direction[symbol] = None
-                            trend_start_time[symbol] = None
-                            last_trade_time[symbol] = now
-                            continue
+                        new_balance = trade_amount[symbol] * (1 + profit_percent - 2 * TRADING_FEE)
+                        trade_logger.info(f"ПРОДАЖА (МАКС ВРЕМЯ): {symbol} по цене {mid_price:.6f}, "
+                                          f"результат {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                        print(f"ПРОДАЖА (МАКС ВРЕМЯ): {symbol} по цене {mid_price:.6f}, "
+                              f"результат {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                        wallet = new_balance
                     elif positions[symbol] == "short":
                         profit_percent = (entry_prices[symbol] - mid_price) / entry_prices[symbol]
-                        if profit_percent >= MICRO_PROFIT_THRESHOLD and sma_short > sma_long:
-                            new_balance = trade_amount[symbol] * (1 + profit_percent - 2 * TRADING_FEE)
-                            trade_logger.info(f"ПОКУПКА (БЫСТРЫЙ ВЫХОД): {symbol} по цене {mid_price:.6f}, "
-                                              f"прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
-                            print(f"ПОКУПКА (БЫСТРЫЙ ВЫХОД): {symbol} по цене {mid_price:.6f}, "
-                                  f"прибыль {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
-                            wallet = new_balance
-                            positions[symbol] = None
-                            entry_prices[symbol] = None
-                            trade_amount[symbol] = None
-                            entry_time[symbol] = None
-                            trend_direction[symbol] = None
-                            trend_start_time[symbol] = None
-                            last_trade_time[symbol] = now
-                            continue
+                        new_balance = trade_amount[symbol] * (1 + profit_percent - 2 * TRADING_FEE)
+                        trade_logger.info(f"ПОКУПКА (МАКС ВРЕМЯ): {symbol} по цене {mid_price:.6f}, "
+                                          f"результат {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                        print(f"ПОКУПКА (МАКС ВРЕМЯ): {symbol} по цене {mid_price:.6f}, "
+                              f"результат {profit_percent * 100:.2f}%, новый баланс {new_balance:.2f}")
+                        wallet = new_balance
+
+                    positions[symbol] = None
+                    entry_prices[symbol] = None
+                    trade_amount[symbol] = None
+                    entry_time[symbol] = None
+                    trend_direction[symbol] = None
+                    trend_start_time[symbol] = None
+                    last_trade_time[symbol] = now
+                    continue
 
             if last_prices[symbol] is not None and positions[symbol] is not None:
                 current_direction = "up" if mid_price > last_prices[symbol] else "down"
@@ -301,28 +310,36 @@ def trading_strategy(prices):
 
             if all(pos is None for pos in positions.values()) and wallet > 0 and (
                     now - last_trade_time[symbol] > MIN_INTERVAL):
+                if is_volatility_excessive(price_history[symbol]):
+                    trend_logger.info(f"{symbol}: Обнаружена высокая волатильность, сделка пропущена")
+                    continue
+
+                bid_volume = sum([level[1] for level in bybit_data.get("bids", [])[:5]])
+                ask_volume = sum([level[1] for level in bybit_data.get("asks", [])[:5]])
+                if min(bid_volume, ask_volume) < MIN_LIQUIDITY:
+                    trend_logger.info(f"{symbol}: Недостаточная ликвидность, сделка пропущена")
+                    continue
+
                 trade_logger.info(f'Wallet: {wallet}')
                 if sma_short > sma_long * (1 + TREND_THRESHOLD):
                     positions[symbol] = "long"
                     entry_prices[symbol] = mid_price
                     entry_time[symbol] = now
-                    trade_amount[symbol] = wallet * 0.5  # используем 50% кошелька
+                    trade_amount[symbol] = wallet * 0.2  # используем 50% кошелька
                     wallet -= trade_amount[symbol]  # оставляем остаток в кошельке
                     last_trade_time[symbol] = now
                     trade_logger.info(f"{symbol}: ВХОД LONG по цене {mid_price:.6f}. Баланс: {wallet:.2f}")
                     print(f"{symbol}: ВХОД LONG по цене {mid_price:.6f}. Баланс: {wallet:.2f}")
-                    wallet = 0  # весь баланс инвестирован
 
                 elif sma_short < sma_long * (1 - TREND_THRESHOLD):
                     positions[symbol] = "short"
                     entry_prices[symbol] = mid_price
                     entry_time[symbol] = now
-                    trade_amount[symbol] = wallet * 0.5  # используем 50% кошелька
+                    trade_amount[symbol] = wallet * 0.2  # используем 50% кошелька
                     wallet -= trade_amount[symbol]  # оставляем остаток в кошельке
                     last_trade_time[symbol] = now
                     trade_logger.info(f"{symbol}: ВХОД SHORT по цене {mid_price:.6f}. Баланс: {wallet:.2f}")
                     print(f"{symbol}: ВХОД SHORT по цене {mid_price:.6f}. Баланс: {wallet:.2f}")
-                    wallet = 0
 
             elif positions[symbol] == "long":
                 profit_percent = (mid_price - entry_prices[symbol]) / entry_prices[symbol]
