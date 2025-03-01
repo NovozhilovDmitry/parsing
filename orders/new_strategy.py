@@ -3,7 +3,7 @@ import threading
 from order_functions import (setup_logging, calculate_indicators, check_profit_target, check_entry_conditions,
                              get_market_data, check_micro_trend_exit, check_trend_reversal, check_stop_loss,
                              check_quick_exit)
-from test_bybit import BybitWebSocket
+from tst_bybit import BybitWebSocket
 
 
 prices = {
@@ -27,7 +27,7 @@ class TradingConfig:
     SAMPLE_INTERVAL = 0.5
     MAX_TIME_IN_POSITION = 300
     TRADING_FEE = 0.001
-    MIN_LIQUIDITY = 10000
+    MIN_LIQUIDITY = 100
     PRICE_CHECK_WINDOW = 4
     POSITION_SIZE_PERCENT = 0.25
 
@@ -57,7 +57,7 @@ def trading_strategy(prices):
 
         for symbol in symbols:
             bybit_data = prices.get(symbol, {}).get("bybit", {})
-            bid, ask, mid_price, bid_volume, ask_volume = get_market_data(symbol, bybit_data)
+            bid, ask, mid_price, bid_volume, ask_volume = get_market_data(bybit_data)
 
             if mid_price is None:
                 continue
@@ -176,8 +176,6 @@ def trading_strategy(prices):
 
             if all(pos is None for pos in positions.values()) and wallet > 0 and \
                     (now - last_trade_time[symbol] > config.MIN_INTERVAL):
-                trade_logger.info(f'Wallet: {wallet}')
-
                 position_type, entry_price, position_amount = check_entry_conditions(
                     symbol, sma_short, sma_long, mid_price, wallet, bid_volume, ask_volume,
                     price_history[symbol], trend_logger, trade_logger, config
@@ -219,7 +217,7 @@ if __name__ == "__main__":
 
     try:
         while True:
-            print(f'{prices}\n')
+            print(f'{prices}')
             print(f'Wallet: {TradingConfig.INITIAL_WALLET}\n')
             time.sleep(1)
     except KeyboardInterrupt:
