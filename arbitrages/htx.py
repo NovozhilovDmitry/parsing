@@ -3,7 +3,7 @@ import websocket
 import threading
 import time
 import gzip
-from logs.logging import logger
+from logs.log_settings import logger
 
 # URL WebSocket HTX
 HTX_WS_URL = "wss://api.huobi.pro/ws"

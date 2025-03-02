@@ -1,6 +1,6 @@
 import threading
 import time
-from logs.logging import logger
+from logs.log_settings import logger
 from bingx import BingXWebSocket
 from bybit import BybitWebSocket
 from htx import HTXWebSocket

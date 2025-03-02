@@ -2,7 +2,7 @@ import json
 import websocket
 import threading
 import time
-from logs.logging import logger
+from logs.log_settings import logger
 
 # URL WebSocket OKX
 OKX_WS_URL = "wss://ws.okx.com:8443/ws/v5/public"

@@ -2,7 +2,7 @@ import json
 import websocket
 import threading
 import time
-from logs.logging import logger
+from logs.log_settings import logger
 
 # URL WebSocket Bybit
 BYBIT_WS_URL = "wss://stream.bybit.com/v5/public/spot"

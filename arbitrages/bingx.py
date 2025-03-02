@@ -4,7 +4,7 @@ import gzip
 import io
 import threading
 import time
-from logs.logging import logger
+from logs.log_settings import logger
 
 # URL WebSocket BingX
 BINGX_WS_URL = "wss://open-api-swap.bingx.com/swap-market"
