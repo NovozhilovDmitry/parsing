@@ -1,32 +1,34 @@
+import signal
 import json
 import websocket
 import threading
 import time
+import os
 from collections import deque
 from log_handler import log_event, log_wallet
-
 
 BYBIT_WS_URL = "wss://stream.bybit.com/v5/public/spot"
 PAIRS = ['BTCUSDT', 'ETHUSDT']
 SUBSCRIPTIONS = {"op": "subscribe", "args": [f"orderbook.1.{pair}" for pair in PAIRS]}
 bybit_prices = {pair: {} for pair in PAIRS}
+
 wallet = {'balance': 1000}  # Начальный депозит 1000 USD
 positions = {}
 candle_history = {
-    'BTCUSDT': deque(maxlen=300),
-    'ETHUSDT': deque(maxlen=300)
+    'BTCUSDT': deque(maxlen=1000),
+    'ETHUSDT': deque(maxlen=1000)
 }
 trend_confirmations = {
     'BTCUSDT': {'bullish': 0, 'bearish': 0},
     'ETHUSDT': {'bullish': 0, 'bearish': 0},
 }
-COMMISSION = 0.001           # 0.1%
-MIN_PROFIT_PCT = 0.005       # 0.5% прибыль (после вычета комиссии)
-STOP_LOSS_TRIGGER = 0.01     # стоп-лосс: 1% откат от текущего максимума/минимума
-CONFIRMATION_PERIODS = 3     # требуется 2-3 периода для подтверждения разворота
-RISK_PERCENT = 0.02          # используем 2% депозита для расчёта позиции (при этом риск не более 20% депозита)
-TRADE_FRACTION = 0.5
 
+COMMISSION = 0.001         # 0.1%
+MIN_PROFIT_PCT = 0.01      # 1% прибыль (после вычета комиссии)
+STOP_LOSS_TRIGGER = 0.01   # стоп-лосс: 1% откат от текущего максимума/минимума
+CONFIRMATION_PERIODS = 10  # требуется 10 периодов подтверждения разворота
+RISK_PER_TRADE = 0.03      # 3% депозита на одну сделку
+ADX_THRESHOLD = 30         # Минимальное значение ADX для подтверждения тренда
 
 class BybitWebSocket:
     def __init__(self, prices):
@@ -62,7 +64,7 @@ class BybitWebSocket:
                 del self.prices[symbol]["bybit"]
 
     def start(self):
-        while True:
+        while self.reconnect:
             try:
                 self.ws = websocket.WebSocketApp(
                     BYBIT_WS_URL,
@@ -73,8 +75,8 @@ class BybitWebSocket:
                 )
                 self.ws.run_forever()
             except Exception as e:
-                log_event(f"Ошибка запуска WebSocket: {e}")
-
+                log_event(f"Ошибка WebSocket: {e}. Переподключение через 10 сек...")
+                time.sleep(10)
 
 def compute_sma(candles, period):
     if len(candles) < period:
@@ -119,6 +121,28 @@ def compute_rsi(candles, period=14):
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
 
+def compute_adx(candles, period=14):
+    if len(candles) < 2 * period:
+        return None
+    candles_list = list(candles)
+    plus_dm = []
+    minus_dm = []
+    tr = []
+    for i in range(1, period + 1):
+        current = candles_list[-i]
+        prev = candles_list[-i-1]
+        up_move = current['high'] - prev['high']
+        down_move = prev['low'] - current['low']
+        plus_dm.append(up_move if up_move > down_move and up_move > 0 else 0)
+        minus_dm.append(down_move if down_move > up_move and down_move > 0 else 0)
+        tr.append(max(current['high'] - current['low'], abs(current['high'] - prev['close']),
+                      abs(current['low'] - prev['close'])))
+    atr = sum(tr) / period
+    plus_di = (sum(plus_dm) / atr) * 100
+    minus_di = (sum(minus_dm) / atr) * 100
+    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100 if (plus_di + minus_di) != 0 else 0
+    return dx
+
 def is_bullish_structure(candles, n=5):
     if len(candles) < n:
         return False
@@ -139,17 +163,15 @@ def determine_trend(candles):
     current = candles[-1]
     sma50 = compute_sma(candles, 50)
     sma200 = compute_sma(candles, 200)
-    structure_bull = is_bullish_structure(candles, n=5)
-    structure_bear = is_bearish_structure(candles, n=5)
-    if sma50 is not None and sma200 is not None:
-        if current['close'] > sma50 > sma200:
+    rsi = compute_rsi(candles, 14)
+    adx = compute_adx(candles, 14)
+    strong_trend = adx is not None and adx > ADX_THRESHOLD
+
+    if sma50 and sma200:
+        if current['close'] > sma50 > sma200 and strong_trend and (rsi is not None and rsi < 70):
             return "bullish"
-        if current['close'] < sma50 < sma200:
+        if current['close'] < sma50 < sma200 and strong_trend and (rsi is not None and rsi > 30):
             return "bearish"
-    if structure_bull:
-        return "bullish"
-    if structure_bear:
-        return "bearish"
     return "neutral"
 
 def update_candle_history(symbol, price):
@@ -167,10 +189,12 @@ def open_long(symbol, price):
     if symbol in positions and positions[symbol]['side'] == 'long':
         log_event(f"{symbol}: Лонг позиция уже открыта.")
         return False
-    investment = wallet['balance'] * TRADE_FRACTION
-    atr = compute_atr(candle_history[symbol], period=14)
-    qty = investment / price if atr is None or atr == 0 else investment / price
+    if wallet['balance'] <= 0:
+        log_event(f"{symbol}: Недостаточно средств для открытия позиции")
+        return False
+    investment = wallet['balance'] * RISK_PER_TRADE
     entry_price = price * (1 + COMMISSION)
+    qty = (investment * (1 - COMMISSION)) / entry_price
     target_price = entry_price * (1 + MIN_PROFIT_PCT)
     positions[symbol] = {
         'side': 'long',
@@ -179,11 +203,12 @@ def open_long(symbol, price):
         'qty': qty,
         'commission': COMMISSION,
         'target_price': target_price,
-        'investment': investment
+        'investment': investment,
+        'current_profit_pct': 0.0,
+        'stop_loss_pct': -0.5
     }
     wallet['balance'] -= investment
-    log_event(f"{symbol}: Открыт LONG по цене {entry_price:.2f}, target {target_price:.2f}, "
-              f"количество: {qty:.6f}. Инвестировано: {investment:.2f}. Остаток кошелька: {wallet['balance']:.2f}")
+    log_event(f"{symbol}: Открыт LONG по цене {entry_price:.2f}, target {target_price:.2f}, количество: {qty:.6f}. Инвестировано: {investment:.2f}. Остаток: {wallet['balance']:.2f}")
     log_wallet(f"Открытие LONG {symbol}: Инвестировано {investment:.2f}, новый баланс {wallet['balance']:.2f}")
     return True
 
@@ -191,10 +216,12 @@ def open_short(symbol, price):
     if symbol in positions and positions[symbol]['side'] == 'short':
         log_event(f"{symbol}: Шорт позиция уже открыта.")
         return False
-    investment = wallet['balance'] * TRADE_FRACTION
-    atr = compute_atr(candle_history[symbol], period=14)
-    qty = investment / price if atr is None or atr == 0 else investment / price
+    if wallet['balance'] <= 0:
+        log_event(f"{symbol}: Недостаточно средств для открытия позиции")
+        return False
+    investment = wallet['balance'] * RISK_PER_TRADE
     entry_price = price * (1 - COMMISSION)
+    qty = (investment * (1 - COMMISSION)) / entry_price
     target_price = entry_price * (1 - MIN_PROFIT_PCT)
     positions[symbol] = {
         'side': 'short',
@@ -203,11 +230,12 @@ def open_short(symbol, price):
         'qty': qty,
         'commission': COMMISSION,
         'target_price': target_price,
-        'investment': investment
+        'investment': investment,
+        'current_profit_pct': 0.0,
+        'stop_loss_pct': -0.5
     }
     wallet['balance'] -= investment
-    log_event(f"{symbol}: Открыт SHORT по цене {entry_price:.2f}, target {target_price:.2f}, "
-              f"количество: {qty:.6f}. Инвестировано: {investment:.2f}. Остаток кошелька: {wallet['balance']:.2f}")
+    log_event(f"{symbol}: Открыт SHORT по цене {entry_price:.2f}, target {target_price:.2f}, количество: {qty:.6f}. Инвестировано: {investment:.2f}. Остаток: {wallet['balance']:.2f}")
     log_wallet(f"Открытие SHORT {symbol}: Инвестировано {investment:.2f}, новый баланс {wallet['balance']:.2f}")
     return True
 
@@ -215,6 +243,9 @@ def close_position(symbol, price):
     if symbol not in positions:
         log_event(f"{symbol}: Нет открытой позиции для закрытия.")
         return False
+    if wallet['balance'] < 0:
+        log_event("ОШИБКА: Отрицательный баланс! Принудительный выход.")
+        os._exit(1)
     pos = positions[symbol]
     side = pos['side']
     qty = pos['qty']
@@ -224,20 +255,32 @@ def close_position(symbol, price):
     if side == 'long':
         profit = (price - entry_price) * qty
         deviation = ((price / target_price) - 1) * 100
-        log_event(f"{symbol}: Закрыт LONG по цене {price:.2f}. Прибыль: {profit:.2f}. "
-                  f"Целевая цена: {target_price:.2f} (отклонение: {deviation:+.2f}%).")
     elif side == 'short':
         profit = (entry_price - price) * qty
         deviation = ((target_price / price) - 1) * 100
-        log_event(f"{symbol}: Закрыт SHORT по цене {price:.2f}. Прибыль: {profit:.2f}. "
-                  f"Целевая цена: {target_price:.2f} (отклонение: {deviation:+.2f}%).")
     wallet['balance'] += (investment + profit)
-    log_event(f"{symbol}: Новый баланс: {wallet['balance']:.2f}")
-    log_wallet(f"Закрытие {side.upper()} {symbol}: Прибыль {profit:.2f}, инвестировано {investment:.2f}, "
-               f"новый баланс {wallet['balance']:.2f}")
+    log_event(f"{symbol}: Закрыт {side.upper()} по цене {price:.2f}. Прибыль: {profit:.2f}. Цель: {target_price:.2f} (отклонение: {deviation:+.2f}%). Новый баланс: {wallet['balance']:.2f}")
+    log_wallet(f"Закрытие {side.upper()} {symbol}: Прибыль {profit:.2f}, инвестировано {investment:.2f}, новый баланс {wallet['balance']:.2f}")
     del positions[symbol]
     trend_confirmations[symbol] = {'bullish': 0, 'bearish': 0}
     return True
+
+def update_stop_loss(pos, price):
+    if pos['side'] == 'long':
+        profit_pct = ((price - pos['entry_price']) / pos['entry_price']) * 100
+        steps = int(profit_pct / 0.5)
+        new_stop_pct = -0.5 + (steps * 0.25)
+        if new_stop_pct > pos['stop_loss_pct']:
+            pos['stop_loss_pct'] = new_stop_pct
+            log_event(f"LONG: Стоп-лосс сдвинут до {new_stop_pct:.2f}% при прибыли {profit_pct:.2f}%")
+    elif pos['side'] == 'short':
+        profit_pct = ((pos['entry_price'] - price) / pos['entry_price']) * 100
+        steps = int(profit_pct / 0.5)
+        new_stop_pct = -0.5 + (steps * 0.25)
+        if new_stop_pct > pos['stop_loss_pct']:
+            pos['stop_loss_pct'] = new_stop_pct
+            log_event(f"SHORT: Стоп-лосс сдвинут до {new_stop_pct:.2f}% при прибыли {profit_pct:.2f}%")
+    pos['current_profit_pct'] = profit_pct
 
 def on_new_price(symbol, bid_price, ask_price):
     mid_price = (bid_price + ask_price) / 2
@@ -248,7 +291,6 @@ def on_new_price(symbol, bid_price, ask_price):
 
     current_trend = determine_trend(candles)
     rsi = compute_rsi(candles, period=14)
-
     if current_trend == "bullish":
         trend_confirmations[symbol]['bullish'] += 1
         trend_confirmations[symbol]['bearish'] = 0
@@ -260,54 +302,54 @@ def on_new_price(symbol, bid_price, ask_price):
         trend_confirmations[symbol]['bearish'] = 0
 
     confirmed_trend = None
-    if trend_confirmations[symbol]['bullish'] >= CONFIRMATION_PERIODS:
+    adx_value = compute_adx(candles)
+    log_event(f"ADX={adx_value and round(adx_value, 2)}")
+    if adx_value is not None and adx_value < ADX_THRESHOLD:
+        log_event(f"{symbol}: Боковик (ADX <{ADX_THRESHOLD}), пропуск сделки")
+        return
+    if trend_confirmations[symbol]['bullish'] >= CONFIRMATION_PERIODS and adx_value > ADX_THRESHOLD:
         confirmed_trend = "bullish"
-    elif trend_confirmations[symbol]['bearish'] >= CONFIRMATION_PERIODS:
+    elif trend_confirmations[symbol]['bearish'] >= CONFIRMATION_PERIODS and adx_value > ADX_THRESHOLD:
         confirmed_trend = "bearish"
 
     sma50 = compute_sma(candles, 50)
     sma200 = compute_sma(candles, 200)
     spread = ask_price - bid_price
-    log_event(f"{symbol}: mid={mid_price:.2f}, SMA50={sma50 and round(sma50,2)}, "
-              f"SMA200={sma200 and round(sma200,2)}, RSI={rsi and round(rsi,2)}, "
-              f"Спред={spread:.2f}, Тренд: {confirmed_trend or 'неопределён'}")
+    log_event(f"{symbol}: mid={mid_price:.2f}, SMA50={sma50 and round(sma50,2)}, SMA200={sma200 and round(sma200,2)}, RSI={rsi and round(rsi,2)}, Спред={spread:.2f}, Тренд: {confirmed_trend or 'неопределён'}")
 
-    if symbol not in positions:
+    if wallet['balance'] > 0 and symbol not in positions:
         if confirmed_trend == "bullish":
             open_long(symbol, ask_price)
         elif confirmed_trend == "bearish":
             open_short(symbol, bid_price)
     else:
-        pos = positions[symbol]
-        side = pos['side']
-        if side == 'long':
-            if bid_price > pos['max_price']:
-                pos['max_price'] = bid_price
-            take_profit_price = pos['entry_price'] * (1 + MIN_PROFIT_PCT)
-            stop_loss_price = pos['max_price'] * (1 - STOP_LOSS_TRIGGER)
-            if bid_price >= take_profit_price:
-                log_event(f"{symbol}: LONG - Достигнут тейк-профит: bid {bid_price:.2f} >= {take_profit_price:.2f}")
-                close_position(symbol, bid_price)
-            elif bid_price <= stop_loss_price:
-                log_event(f"{symbol}: LONG - Сработал стоп-лосс: bid {bid_price:.2f} <= {stop_loss_price:.2f}")
-                close_position(symbol, bid_price)
-            elif confirmed_trend == "bearish":
-                log_event(f"{symbol}: LONG - Разворот тренда (bearish), закрытие позиции по bid {bid_price:.2f}.")
-                close_position(symbol, bid_price)
-        elif side == 'short':
-            if ask_price < pos['min_price']:
-                pos['min_price'] = ask_price
-            take_profit_price = pos['entry_price'] * (1 - MIN_PROFIT_PCT)
-            stop_loss_price = pos['min_price'] * (1 + STOP_LOSS_TRIGGER)
-            if ask_price <= take_profit_price:
-                log_event(f"{symbol}: SHORT - Достигнут тейк-профит: ask {ask_price:.2f} <= {take_profit_price:.2f}")
-                close_position(symbol, ask_price)
-            elif ask_price >= stop_loss_price:
-                log_event(f"{symbol}: SHORT - Сработал стоп-лосс: ask {ask_price:.2f} >= {stop_loss_price:.2f}")
-                close_position(symbol, ask_price)
-            elif confirmed_trend == "bullish":
-                log_event(f"{symbol}: SHORT - Разворот тренда (bullish), закрытие позиции по ask {ask_price:.2f}.")
-                close_position(symbol, ask_price)
+        pos = positions.get(symbol)
+        if pos:
+            side = pos['side']
+            if side == 'long':
+                update_stop_loss(pos, bid_price)
+                stop_loss_price = pos['entry_price'] * (1 + pos['stop_loss_pct'] / 100)
+                if bid_price <= stop_loss_price:
+                    log_event(f"{symbol}: LONG - Стоп-лосс сработал: bid {bid_price:.2f} <= {stop_loss_price:.2f}")
+                    close_position(symbol, bid_price)
+                elif bid_price >= pos['target_price']:
+                    log_event(f"{symbol}: LONG - Тейк-профит достигнут: bid {bid_price:.2f} >= {pos['target_price']:.2f}")
+                    close_position(symbol, bid_price)
+                elif confirmed_trend == "bearish":
+                    log_event(f"{symbol}: LONG - Разворот тренда (bearish), закрытие позиции по bid {bid_price:.2f}")
+                    close_position(symbol, bid_price)
+            elif side == 'short':
+                update_stop_loss(pos, ask_price)
+                stop_loss_price = pos['entry_price'] * (1 - pos['stop_loss_pct'] / 100)
+                if ask_price >= stop_loss_price:
+                    log_event(f"{symbol}: SHORT - Стоп-лосс сработал: ask {ask_price:.2f} >= {stop_loss_price:.2f}")
+                    close_position(symbol, ask_price)
+                elif ask_price <= pos['target_price']:
+                    log_event(f"{symbol}: SHORT - Тейк-профит достигнут: ask {ask_price:.2f} <= {pos['target_price']:.2f}")
+                    close_position(symbol, ask_price)
+                elif confirmed_trend == "bullish":
+                    log_event(f"{symbol}: SHORT - Разворот тренда (bullish), закрытие позиции по ask {ask_price:.2f}")
+                    close_position(symbol, ask_price)
 
 def websocket_message_handler(message):
     try:
@@ -333,13 +375,27 @@ def run_websocket():
     ws_client = BybitWebSocket(bybit_prices)
     ws_client.start()
 
+def shutdown_trading(signum, frame):
+    log_event("Получен сигнал завершения. Закрываем все открытые позиции...")
+    for symbol in list(positions.keys()):
+        if candle_history[symbol]:
+            price = candle_history[symbol][-1]['close']
+        elif symbol in bybit_prices and "bybit" in bybit_prices[symbol]:
+            price = (bybit_prices[symbol]["bybit"]["bid"] + bybit_prices[symbol]["bybit"]["ask"]) / 2
+        else:
+            price = None
+        if price is not None:
+            close_position(symbol, price)
+    log_wallet(f"Завершение работы. Итоговая сумма в кошельке: {wallet['balance']:.2f}")
+    exit(0)
+
+signal.signal(signal.SIGINT, shutdown_trading)
+signal.signal(signal.SIGTERM, shutdown_trading)
 
 if __name__ == '__main__':
     ws_thread = threading.Thread(target=run_websocket, daemon=True)
     ws_thread.start()
     while True:
         for symbol in PAIRS:
-            log_event(f"{symbol}: "
-                      f"Последняя свеча: {candle_history[symbol][-1] if candle_history[symbol] else 'Нет данных'}, "
-                      f"Позиция: {positions.get(symbol)}")
+            log_event(f"{symbol}: Последняя свеча: {candle_history[symbol][-1] if candle_history[symbol] else 'Нет данных'}, Позиция: {positions.get(symbol)}")
         time.sleep(2)
