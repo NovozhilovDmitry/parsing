@@ -2,7 +2,7 @@ import json
 import websocket
 import threading
 import time
-from logs.log_settings import logger
+from functions.log_settings import logger
 
 
 OKX_WS_URL = "wss://ws.okx.com:8443/ws/v5/public"
@@ -30,16 +30,16 @@ class OKXWebSocket:
         self.reconnect = True
 
     def on_open(self, ws):
-        logger.info("✅ Подключено к WebSocket OKX")
+        logger.info("Подключено к WebSocket OKX")
         for sub in SUBSCRIPTIONS:
             ws.send(json.dumps(sub))
-            print("📡 Подписка отправлена:", sub)
+            print("Подписка отправлена:", sub)
 
     def on_message(self, ws, message):
         try:
             data = json.loads(message)
             if "event" in data and data["event"] == "subscribe":
-                print(f"🔔 Подписка успешна: {data}")
+                print(f"Подписка успешна: {data}")
                 return
 
             if "arg" in data and "data" in data:
@@ -50,16 +50,16 @@ class OKXWebSocket:
                 if symbol in okx_prices:
                     self.prices[symbol]["okx"] = {"bid": bid_price, "ask": ask_price}
         except Exception as e:
-            print(f"❌ Ошибка обработки данных OKX: {e}")
+            print(f"Ошибка обработки данных OKX: {e}")
 
     def on_error(self, ws, error):
-        print(f"❌ Ошибка WebSocket OKX: {error}")
+        print(f"Ошибка WebSocket OKX: {error}")
         self.clear_prices()
 
     def on_close(self, ws, close_status_code, close_msg):
         if self.reconnect:
-            logger.error("❌ WebSocket OKX закрыт")
-            logger.info("🔄 Переподключение к WebSocket OKX через 5 сек...")
+            logger.error("WebSocket OKX закрыт")
+            logger.info("Переподключение к WebSocket OKX через 5 сек...")
             time.sleep(5)
             self.start()
 
@@ -79,7 +79,7 @@ class OKXWebSocket:
                     on_close=self.on_close)
                 self.ws.run_forever()
             except Exception as e:
-                print(f"❌ Ошибка WebSocket OKX (перезапуск): {e}")
+                print(f"Ошибка WebSocket OKX (перезапуск): {e}")
             time.sleep(5)
 
 

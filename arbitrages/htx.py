@@ -3,7 +3,7 @@ import websocket
 import threading
 import time
 import gzip
-from logs.log_settings import logger
+from functions.log_settings import logger
 
 
 HTX_WS_URL = "wss://api.huobi.pro/ws"
@@ -31,10 +31,10 @@ class HTXWebSocket:
         self.reconnect = True
 
     def on_open(self, ws):
-        logger.info("✅ Подключено к WebSocket HTX")
+        logger.info("Подключено к WebSocket HTX")
         for sub in SUBSCRIPTIONS:
             ws.send(json.dumps(sub))
-            print("📡 Подписка отправлена:", sub)
+            print("Подписка отправлена:", sub)
 
     def decode_message(self, message):
         return gzip.decompress(message).decode("utf-8")
@@ -55,16 +55,16 @@ class HTXWebSocket:
                     self.prices[symbol]["htx"] = {"bid": bid_price, "ask": ask_price}
 
         except Exception as e:
-            print(f"❌ Ошибка обработки данных HTX: {e}")
+            print(f"Ошибка обработки данных HTX: {e}")
 
     def on_error(self, ws, error):
-        print(f"❌ Ошибка WebSocket HTX: {error}")
+        print(f"Ошибка WebSocket HTX: {error}")
         self.clear_prices()
 
     def on_close(self, ws, close_status_code, close_msg):
         if self.reconnect:
-            logger.error(f"⚠️ WebSocket HTX закрыт")
-            logger.info("🔄 Переподключение к WebSocket HTX через 5 сек...")
+            logger.error(f"WebSocket HTX закрыт")
+            logger.info("Переподключение к WebSocket HTX через 5 сек...")
             time.sleep(5)
             self.start()
 
@@ -84,7 +84,7 @@ class HTXWebSocket:
                     on_close=self.on_close)
                 self.ws.run_forever()
             except Exception as e:
-                print(f"❌ Ошибка WebSocket HTX (перезапуск): {e}")
+                print(f"Ошибка WebSocket HTX (перезапуск): {e}")
             time.sleep(5)
 
 

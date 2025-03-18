@@ -4,7 +4,7 @@ import gzip
 import io
 import threading
 import time
-from logs.log_settings import logger
+from functions.log_settings import logger
 
 
 BINGX_WS_URL = "wss://open-api-swap.bingx.com/swap-market"
@@ -31,10 +31,10 @@ class BingXWebSocket:
         self.reconnect = True
 
     def on_open(self, ws):
-        logger.info("✅ Подключено к WebSocket BingX")
+        logger.info("Подключено к WebSocket BingX")
         for sub in SUBSCRIPTIONS:
             ws.send(json.dumps(sub))
-            print("📡 Подписка отправлена:", sub)
+            print("Подписка отправлена:", sub)
 
     def decode_message(self, message):
         compressed_data = gzip.GzipFile(fileobj=io.BytesIO(message), mode="rb")
@@ -60,8 +60,8 @@ class BingXWebSocket:
 
     def on_close(self, ws, close_status_code, close_msg):
         if self.reconnect:
-            logger.error(f"⚠️ WebSocket BingX закрыт")
-            logger.info("🔄 Переподключение к WebSocket BingX через 5 сек...")
+            logger.error(f"WebSocket BingX закрыт")
+            logger.info("Переподключение к WebSocket BingX через 5 сек...")
             time.sleep(5)
             self.start()
 

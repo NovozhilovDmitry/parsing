@@ -2,7 +2,7 @@ import json
 import websocket
 import threading
 import time
-from logs.log_settings import logger
+from functions.log_settings import logger
 
 
 BYBIT_WS_URL = "wss://stream.bybit.com/v5/public/spot"
@@ -29,15 +29,15 @@ class BybitWebSocket:
         self.reconnect = True
 
     def on_open(self, ws):
-        logger.info("✅ Подключено к WebSocket Bybit")
+        logger.info("Подключено к WebSocket Bybit")
         ws.send(json.dumps(SUBSCRIPTIONS))
-        print("📡 Подписка отправлена:", SUBSCRIPTIONS)
+        print("Подписка отправлена:", SUBSCRIPTIONS)
 
     def on_message(self, ws, message):
         try:
             data = json.loads(message)
             if "success" in data and data["success"]:
-                print(f"🔔 Подписка успешна: {data}")
+                print(f"Подписка успешна: {data}")
                 return
 
             if "topic" in data and "orderbook" in data["topic"]:
@@ -54,17 +54,17 @@ class BybitWebSocket:
                         self.prices[symbol]["bybit"] = {"bid": bid_price, "ask": ask_price}
 
         except Exception as e:
-            print(f"❌ Ошибка обработки данных Bybit: {e}")
+            print(f"Ошибка обработки данных Bybit: {e}")
 
     def on_error(self, ws, error):
-        print(f"❌ Ошибка WebSocket Bybit: {error}")
+        print(f"Ошибка WebSocket Bybit: {error}")
         self.clear_prices()
 
     def on_close(self, ws, close_status_code, close_msg):
         logger.warning(f'BYBIT WS: {ws}, Close_status_code: {close_status_code}, Close_msg: {close_msg}')
         if self.reconnect:
-            logger.error(print("❌ WebSocket Bybit закрыт"))
-            logger.info("🔄 Переподключение к WebSocket Bybit через 5 сек...")
+            logger.error("WebSocket Bybit закрыт")
+            logger.info("Переподключение к WebSocket Bybit через 5 сек...")
             time.sleep(5)
             self.start()
 
@@ -84,7 +84,7 @@ class BybitWebSocket:
                     on_close=self.on_close)
                 self.ws.run_forever()
             except Exception as e:
-                print(f"❌ Ошибка WebSocket Bybit (перезапуск): {e}")
+                print(f"Ошибка WebSocket Bybit (перезапуск): {e}")
             time.sleep(5)
 
 
@@ -95,5 +95,4 @@ if __name__ == '__main__':
     bybit_thread = threading.Thread(target=run_bybit_websocket, daemon=True)
     bybit_thread.start()
     while True:
-        print(bybit_prices)
         time.sleep(1)
